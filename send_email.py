@@ -61,4 +61,4 @@ def send_email(recipient, subject, html_body, mailbox_name):
         })
 
     except Exception as e:
-        print("❌ Error sending email:", e)
+        print("Error sending email:", e)
