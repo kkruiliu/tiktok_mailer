@@ -1,0 +1,85 @@
+<html>
+<head>
+<title>nsbase.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+nsbase.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2007, 2009-2011 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;NS-like base classes.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span>
+
+
+<span class="s4">@</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">class </span><span class="s1">NSBase</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Base class for rdata that is like an NS record.&quot;&quot;&quot;</span>
+
+    <span class="s1">__slots__ </span><span class="s4">= [</span><span class="s5">&quot;target&quot;</span><span class="s4">]</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">target</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">target </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_as_name</span><span class="s4">(</span><span class="s1">target</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">=</span><span class="s3">True</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">):</span>
+        <span class="s1">target </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">target</span><span class="s4">.</span><span class="s1">choose_relativity</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">str</span><span class="s4">(</span><span class="s1">target</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_text</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">tok</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">=</span><span class="s3">True</span><span class="s4">, </span><span class="s1">relativize_to</span><span class="s4">=</span><span class="s3">None</span>
+    <span class="s4">):</span>
+        <span class="s1">target </span><span class="s4">= </span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_name</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">, </span><span class="s1">relativize_to</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">target</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">, </span><span class="s1">compress</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">canonicalize</span><span class="s4">=</span><span class="s3">False</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">target</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">file</span><span class="s4">, </span><span class="s1">compress</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">, </span><span class="s1">canonicalize</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">):</span>
+        <span class="s1">target </span><span class="s4">= </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_name</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">target</span><span class="s4">)</span>
+
+
+<span class="s4">@</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">class </span><span class="s1">UncompressedNS</span><span class="s4">(</span><span class="s1">NSBase</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Base class for rdata that is like an NS record, but whose name 
+    is not compressed when convert to DNS wire format, and whose 
+    digestable form is not downcased.&quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">_to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">, </span><span class="s1">compress</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">canonicalize</span><span class="s4">=</span><span class="s3">False</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">target</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">file</span><span class="s4">, </span><span class="s3">None</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">, </span><span class="s3">False</span><span class="s4">)</span>
+</pre>
+</body>
+</html>

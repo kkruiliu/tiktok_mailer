@@ -1,0 +1,33 @@
+<html>
+<head>
+<title>fix.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+.s4 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+fix.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">database </span><span class="s0">import </span><span class="s1">mailboxes_col</span>
+
+<span class="s1">mailboxes_col</span><span class="s2">.</span><span class="s1">update_one</span><span class="s2">(</span>
+    <span class="s2">{</span><span class="s3">&quot;name&quot;</span><span class="s2">: </span><span class="s3">&quot;campaignA&quot;</span><span class="s2">},</span>
+    <span class="s2">{</span><span class="s3">&quot;$set&quot;</span><span class="s2">: {</span>
+        <span class="s3">&quot;smtp_host&quot;</span><span class="s2">: </span><span class="s3">&quot;smtp.gmail.com&quot;</span><span class="s2">,</span>
+        <span class="s3">&quot;smtp_port&quot;</span><span class="s2">: </span><span class="s4">587</span><span class="s2">,</span>
+        <span class="s3">&quot;tls&quot;</span><span class="s2">: </span><span class="s0">True</span>
+    <span class="s2">}}</span>
+<span class="s2">)</span>
+
+<span class="s1">print</span><span class="s2">(</span><span class="s3">&quot;Updated SMTP config for campaignA.&quot;</span><span class="s2">)</span>
+</pre>
+</body>
+</html>

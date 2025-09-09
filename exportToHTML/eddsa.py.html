@@ -1,0 +1,91 @@
+<html>
+<head>
+<title>eddsa.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #5f826b; font-style: italic;}
+.s4 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+eddsa.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">typing </span><span class="s0">import </span><span class="s1">Type</span>
+
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives </span><span class="s0">import </span><span class="s1">serialization</span>
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives</span><span class="s2">.</span><span class="s1">asymmetric </span><span class="s0">import </span><span class="s1">ed448</span><span class="s2">, </span><span class="s1">ed25519</span>
+
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssecalgs</span><span class="s2">.</span><span class="s1">cryptography </span><span class="s0">import </span><span class="s1">CryptographyPrivateKey</span><span class="s2">, </span><span class="s1">CryptographyPublicKey</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssectypes </span><span class="s0">import </span><span class="s1">Algorithm</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">rdtypes</span><span class="s2">.</span><span class="s1">ANY</span><span class="s2">.</span><span class="s1">DNSKEY </span><span class="s0">import </span><span class="s1">DNSKEY</span>
+
+
+<span class="s0">class </span><span class="s1">PublicEDDSA</span><span class="s2">(</span><span class="s1">CryptographyPublicKey</span><span class="s2">):</span>
+    <span class="s0">def </span><span class="s1">verify</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">signature</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">, </span><span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s0">None</span><span class="s2">:</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">signature</span><span class="s2">, </span><span class="s1">data</span><span class="s2">)</span>
+
+    <span class="s0">def </span><span class="s1">encode_key_bytes</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s3">&quot;&quot;&quot;Encode a public key per RFC 8080, section 3.&quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">public_bytes</span><span class="s2">(</span>
+            <span class="s1">encoding</span><span class="s2">=</span><span class="s1">serialization</span><span class="s2">.</span><span class="s1">Encoding</span><span class="s2">.</span><span class="s1">Raw</span><span class="s2">, </span><span class="s1">format</span><span class="s2">=</span><span class="s1">serialization</span><span class="s2">.</span><span class="s1">PublicFormat</span><span class="s2">.</span><span class="s1">Raw</span>
+        <span class="s2">)</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">from_dnskey</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">, </span><span class="s1">key</span><span class="s2">: </span><span class="s1">DNSKEY</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s4">&quot;PublicEDDSA&quot;</span><span class="s2">:</span>
+        <span class="s1">cls</span><span class="s2">.</span><span class="s1">_ensure_algorithm_key_combination</span><span class="s2">(</span><span class="s1">key</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span>
+            <span class="s1">key</span><span class="s2">=</span><span class="s1">cls</span><span class="s2">.</span><span class="s1">key_cls</span><span class="s2">.</span><span class="s1">from_public_bytes</span><span class="s2">(</span><span class="s1">key</span><span class="s2">.</span><span class="s1">key</span><span class="s2">),</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateEDDSA</span><span class="s2">(</span><span class="s1">CryptographyPrivateKey</span><span class="s2">):</span>
+    <span class="s1">public_cls</span><span class="s2">: </span><span class="s1">Type</span><span class="s2">[</span><span class="s1">PublicEDDSA</span><span class="s2">]</span>
+
+    <span class="s0">def </span><span class="s1">sign</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">,</span>
+        <span class="s1">verify</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">deterministic</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">True</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s3">&quot;&quot;&quot;Sign using a private key per RFC 8080, section 4.&quot;&quot;&quot;</span>
+        <span class="s1">signature </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">sign</span><span class="s2">(</span><span class="s1">data</span><span class="s2">)</span>
+        <span class="s0">if </span><span class="s1">verify</span><span class="s2">:</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">public_key</span><span class="s2">().</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">signature</span><span class="s2">, </span><span class="s1">data</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">signature</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">generate</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s4">&quot;PrivateEDDSA&quot;</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span><span class="s1">key</span><span class="s2">=</span><span class="s1">cls</span><span class="s2">.</span><span class="s1">key_cls</span><span class="s2">.</span><span class="s1">generate</span><span class="s2">())</span>
+
+
+<span class="s0">class </span><span class="s1">PublicED25519</span><span class="s2">(</span><span class="s1">PublicEDDSA</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">ed25519</span><span class="s2">.</span><span class="s1">Ed25519PublicKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">ed25519</span><span class="s2">.</span><span class="s1">Ed25519PublicKey</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">ED25519</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateED25519</span><span class="s2">(</span><span class="s1">PrivateEDDSA</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">ed25519</span><span class="s2">.</span><span class="s1">Ed25519PrivateKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">ed25519</span><span class="s2">.</span><span class="s1">Ed25519PrivateKey</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicED25519</span>
+
+
+<span class="s0">class </span><span class="s1">PublicED448</span><span class="s2">(</span><span class="s1">PublicEDDSA</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">ed448</span><span class="s2">.</span><span class="s1">Ed448PublicKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">ed448</span><span class="s2">.</span><span class="s1">Ed448PublicKey</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">ED448</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateED448</span><span class="s2">(</span><span class="s1">PrivateEDDSA</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">ed448</span><span class="s2">.</span><span class="s1">Ed448PrivateKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">ed448</span><span class="s2">.</span><span class="s1">Ed448PrivateKey</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicED448</span>
+</pre>
+</body>
+</html>

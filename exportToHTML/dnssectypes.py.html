@@ -1,0 +1,93 @@
+<html>
+<head>
+<title>dnssectypes.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+dnssectypes.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;Common DNSSEC-related types.&quot;&quot;&quot;</span>
+
+<span class="s0"># This is a separate file to avoid import circularity between dns.dnssec and</span>
+<span class="s0"># the implementations of the DS and DNSKEY types.</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span>
+
+
+<span class="s3">class </span><span class="s1">Algorithm</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s1">RSAMD5 </span><span class="s4">= </span><span class="s5">1</span>
+    <span class="s1">DH </span><span class="s4">= </span><span class="s5">2</span>
+    <span class="s1">DSA </span><span class="s4">= </span><span class="s5">3</span>
+    <span class="s1">ECC </span><span class="s4">= </span><span class="s5">4</span>
+    <span class="s1">RSASHA1 </span><span class="s4">= </span><span class="s5">5</span>
+    <span class="s1">DSANSEC3SHA1 </span><span class="s4">= </span><span class="s5">6</span>
+    <span class="s1">RSASHA1NSEC3SHA1 </span><span class="s4">= </span><span class="s5">7</span>
+    <span class="s1">RSASHA256 </span><span class="s4">= </span><span class="s5">8</span>
+    <span class="s1">RSASHA512 </span><span class="s4">= </span><span class="s5">10</span>
+    <span class="s1">ECCGOST </span><span class="s4">= </span><span class="s5">12</span>
+    <span class="s1">ECDSAP256SHA256 </span><span class="s4">= </span><span class="s5">13</span>
+    <span class="s1">ECDSAP384SHA384 </span><span class="s4">= </span><span class="s5">14</span>
+    <span class="s1">ED25519 </span><span class="s4">= </span><span class="s5">15</span>
+    <span class="s1">ED448 </span><span class="s4">= </span><span class="s5">16</span>
+    <span class="s1">INDIRECT </span><span class="s4">= </span><span class="s5">252</span>
+    <span class="s1">PRIVATEDNS </span><span class="s4">= </span><span class="s5">253</span>
+    <span class="s1">PRIVATEOID </span><span class="s4">= </span><span class="s5">254</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">255</span>
+
+
+<span class="s3">class </span><span class="s1">DSDigest</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;DNSSEC Delegation Signer Digest Algorithm&quot;&quot;&quot;</span>
+
+    <span class="s1">NULL </span><span class="s4">= </span><span class="s5">0</span>
+    <span class="s1">SHA1 </span><span class="s4">= </span><span class="s5">1</span>
+    <span class="s1">SHA256 </span><span class="s4">= </span><span class="s5">2</span>
+    <span class="s1">GOST </span><span class="s4">= </span><span class="s5">3</span>
+    <span class="s1">SHA384 </span><span class="s4">= </span><span class="s5">4</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">255</span>
+
+
+<span class="s3">class </span><span class="s1">NSEC3Hash</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;NSEC3 hash algorithm&quot;&quot;&quot;</span>
+
+    <span class="s1">SHA1 </span><span class="s4">= </span><span class="s5">1</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">255</span>
+</pre>
+</body>
+</html>

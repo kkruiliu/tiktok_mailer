@@ -1,0 +1,178 @@
+<html>
+<head>
+<title>_ddr.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #6aab73;}
+.s5 { color: #5f826b; font-style: italic;}
+.s6 { color: #2aacb8;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_ddr.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+<span class="s0">#</span>
+<span class="s0"># Support for Discovery of Designated Resolvers</span>
+
+<span class="s2">import </span><span class="s1">socket</span>
+<span class="s2">import </span><span class="s1">time</span>
+<span class="s2">from </span><span class="s1">urllib</span><span class="s3">.</span><span class="s1">parse </span><span class="s2">import </span><span class="s1">urlparse</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">asyncbackend</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">inet</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">nameserver</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">query</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">svcbbase</span>
+
+<span class="s0"># The special name of the local resolver when using DDR</span>
+<span class="s1">_local_resolver_name </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span><span class="s3">.</span><span class="s1">from_text</span><span class="s3">(</span><span class="s4">&quot;_dns.resolver.arpa&quot;</span><span class="s3">)</span>
+
+
+<span class="s0">#</span>
+<span class="s0"># Processing is split up into I/O independent and I/O dependent parts to</span>
+<span class="s0"># make supporting sync and async versions easy.</span>
+<span class="s0">#</span>
+
+
+<span class="s2">class </span><span class="s1">_SVCBInfo</span><span class="s3">:</span>
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">bootstrap_address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">hostname</span><span class="s3">, </span><span class="s1">nameservers</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">bootstrap_address </span><span class="s3">= </span><span class="s1">bootstrap_address</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">port </span><span class="s3">= </span><span class="s1">port</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">hostname </span><span class="s3">= </span><span class="s1">hostname</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">nameservers </span><span class="s3">= </span><span class="s1">nameservers</span>
+
+    <span class="s2">def </span><span class="s1">ddr_check_certificate</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">cert</span><span class="s3">):</span>
+        <span class="s5">&quot;&quot;&quot;Verify that the _SVCBInfo's address is in the cert's subjectAltName (SAN)&quot;&quot;&quot;</span>
+        <span class="s2">for </span><span class="s1">name</span><span class="s3">, </span><span class="s1">value </span><span class="s2">in </span><span class="s1">cert</span><span class="s3">[</span><span class="s4">&quot;subjectAltName&quot;</span><span class="s3">]:</span>
+            <span class="s2">if </span><span class="s1">name </span><span class="s3">== </span><span class="s4">&quot;IP Address&quot; </span><span class="s2">and </span><span class="s1">value </span><span class="s3">== </span><span class="s1">self</span><span class="s3">.</span><span class="s1">bootstrap_address</span><span class="s3">:</span>
+                <span class="s2">return True</span>
+        <span class="s2">return False</span>
+
+    <span class="s2">def </span><span class="s1">make_tls_context</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s1">ssl </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">query</span><span class="s3">.</span><span class="s1">ssl</span>
+        <span class="s1">ctx </span><span class="s3">= </span><span class="s1">ssl</span><span class="s3">.</span><span class="s1">create_default_context</span><span class="s3">()</span>
+        <span class="s1">ctx</span><span class="s3">.</span><span class="s1">minimum_version </span><span class="s3">= </span><span class="s1">ssl</span><span class="s3">.</span><span class="s1">TLSVersion</span><span class="s3">.</span><span class="s1">TLSv1_2</span>
+        <span class="s2">return </span><span class="s1">ctx</span>
+
+    <span class="s2">def </span><span class="s1">ddr_tls_check_sync</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">lifetime</span><span class="s3">):</span>
+        <span class="s1">ctx </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">make_tls_context</span><span class="s3">()</span>
+        <span class="s1">expiration </span><span class="s3">= </span><span class="s1">time</span><span class="s3">.</span><span class="s1">time</span><span class="s3">() + </span><span class="s1">lifetime</span>
+        <span class="s2">with </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">create_connection</span><span class="s3">(</span>
+            <span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">bootstrap_address</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">port</span><span class="s3">), </span><span class="s1">lifetime</span>
+        <span class="s3">) </span><span class="s2">as </span><span class="s1">s</span><span class="s3">:</span>
+            <span class="s2">with </span><span class="s1">ctx</span><span class="s3">.</span><span class="s1">wrap_socket</span><span class="s3">(</span><span class="s1">s</span><span class="s3">, </span><span class="s1">server_hostname</span><span class="s3">=</span><span class="s1">self</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">) </span><span class="s2">as </span><span class="s1">ts</span><span class="s3">:</span>
+                <span class="s1">ts</span><span class="s3">.</span><span class="s1">settimeout</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">query</span><span class="s3">.</span><span class="s1">_remaining</span><span class="s3">(</span><span class="s1">expiration</span><span class="s3">))</span>
+                <span class="s1">ts</span><span class="s3">.</span><span class="s1">do_handshake</span><span class="s3">()</span>
+                <span class="s1">cert </span><span class="s3">= </span><span class="s1">ts</span><span class="s3">.</span><span class="s1">getpeercert</span><span class="s3">()</span>
+                <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">ddr_check_certificate</span><span class="s3">(</span><span class="s1">cert</span><span class="s3">)</span>
+
+    <span class="s2">async def </span><span class="s1">ddr_tls_check_async</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">lifetime</span><span class="s3">, </span><span class="s1">backend</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">backend </span><span class="s2">is None</span><span class="s3">:</span>
+            <span class="s1">backend </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">asyncbackend</span><span class="s3">.</span><span class="s1">get_default_backend</span><span class="s3">()</span>
+        <span class="s1">ctx </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">make_tls_context</span><span class="s3">()</span>
+        <span class="s1">expiration </span><span class="s3">= </span><span class="s1">time</span><span class="s3">.</span><span class="s1">time</span><span class="s3">() + </span><span class="s1">lifetime</span>
+        <span class="s2">async with await </span><span class="s1">backend</span><span class="s3">.</span><span class="s1">make_socket</span><span class="s3">(</span>
+            <span class="s1">dns</span><span class="s3">.</span><span class="s1">inet</span><span class="s3">.</span><span class="s1">af_for_address</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">bootstrap_address</span><span class="s3">),</span>
+            <span class="s1">socket</span><span class="s3">.</span><span class="s1">SOCK_STREAM</span><span class="s3">,</span>
+            <span class="s6">0</span><span class="s3">,</span>
+            <span class="s2">None</span><span class="s3">,</span>
+            <span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">bootstrap_address</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">port</span><span class="s3">),</span>
+            <span class="s1">lifetime</span><span class="s3">,</span>
+            <span class="s1">ctx</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">,</span>
+        <span class="s3">) </span><span class="s2">as </span><span class="s1">ts</span><span class="s3">:</span>
+            <span class="s1">cert </span><span class="s3">= </span><span class="s2">await </span><span class="s1">ts</span><span class="s3">.</span><span class="s1">getpeercert</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">query</span><span class="s3">.</span><span class="s1">_remaining</span><span class="s3">(</span><span class="s1">expiration</span><span class="s3">))</span>
+            <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">ddr_check_certificate</span><span class="s3">(</span><span class="s1">cert</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">_extract_nameservers_from_svcb</span><span class="s3">(</span><span class="s1">answer</span><span class="s3">):</span>
+    <span class="s1">bootstrap_address </span><span class="s3">= </span><span class="s1">answer</span><span class="s3">.</span><span class="s1">nameserver</span>
+    <span class="s2">if not </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">inet</span><span class="s3">.</span><span class="s1">is_address</span><span class="s3">(</span><span class="s1">bootstrap_address</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s3">[]</span>
+    <span class="s1">infos </span><span class="s3">= []</span>
+    <span class="s2">for </span><span class="s1">rr </span><span class="s2">in </span><span class="s1">answer</span><span class="s3">.</span><span class="s1">rrset</span><span class="s3">.</span><span class="s1">processing_order</span><span class="s3">():</span>
+        <span class="s1">nameservers </span><span class="s3">= []</span>
+        <span class="s1">param </span><span class="s3">= </span><span class="s1">rr</span><span class="s3">.</span><span class="s1">params</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">svcbbase</span><span class="s3">.</span><span class="s1">ParamKey</span><span class="s3">.</span><span class="s1">ALPN</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">param </span><span class="s2">is None</span><span class="s3">:</span>
+            <span class="s2">continue</span>
+        <span class="s1">alpns </span><span class="s3">= </span><span class="s1">set</span><span class="s3">(</span><span class="s1">param</span><span class="s3">.</span><span class="s1">ids</span><span class="s3">)</span>
+        <span class="s1">host </span><span class="s3">= </span><span class="s1">rr</span><span class="s3">.</span><span class="s1">target</span><span class="s3">.</span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">omit_final_dot</span><span class="s3">=</span><span class="s2">True</span><span class="s3">)</span>
+        <span class="s1">port </span><span class="s3">= </span><span class="s2">None</span>
+        <span class="s1">param </span><span class="s3">= </span><span class="s1">rr</span><span class="s3">.</span><span class="s1">params</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">svcbbase</span><span class="s3">.</span><span class="s1">ParamKey</span><span class="s3">.</span><span class="s1">PORT</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">param </span><span class="s2">is not None</span><span class="s3">:</span>
+            <span class="s1">port </span><span class="s3">= </span><span class="s1">param</span><span class="s3">.</span><span class="s1">port</span>
+        <span class="s0"># For now we ignore address hints and address resolution and always use the</span>
+        <span class="s0"># bootstrap address</span>
+        <span class="s2">if </span><span class="s7">b&quot;h2&quot; </span><span class="s2">in </span><span class="s1">alpns</span><span class="s3">:</span>
+            <span class="s1">param </span><span class="s3">= </span><span class="s1">rr</span><span class="s3">.</span><span class="s1">params</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">svcbbase</span><span class="s3">.</span><span class="s1">ParamKey</span><span class="s3">.</span><span class="s1">DOHPATH</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">param </span><span class="s2">is None or not </span><span class="s1">param</span><span class="s3">.</span><span class="s1">value</span><span class="s3">.</span><span class="s1">endswith</span><span class="s3">(</span><span class="s7">b&quot;{?dns}&quot;</span><span class="s3">):</span>
+                <span class="s2">continue</span>
+            <span class="s1">path </span><span class="s3">= </span><span class="s1">param</span><span class="s3">.</span><span class="s1">value</span><span class="s3">[:-</span><span class="s6">6</span><span class="s3">].</span><span class="s1">decode</span><span class="s3">()</span>
+            <span class="s2">if not </span><span class="s1">path</span><span class="s3">.</span><span class="s1">startswith</span><span class="s3">(</span><span class="s4">&quot;/&quot;</span><span class="s3">):</span>
+                <span class="s1">path </span><span class="s3">= </span><span class="s4">&quot;/&quot; </span><span class="s3">+ </span><span class="s1">path</span>
+            <span class="s2">if </span><span class="s1">port </span><span class="s2">is None</span><span class="s3">:</span>
+                <span class="s1">port </span><span class="s3">= </span><span class="s6">443</span>
+            <span class="s1">url </span><span class="s3">= </span><span class="s4">f&quot;https://</span><span class="s2">{</span><span class="s1">host</span><span class="s2">}</span><span class="s4">:</span><span class="s2">{</span><span class="s1">port</span><span class="s2">}{</span><span class="s1">path</span><span class="s2">}</span><span class="s4">&quot;</span>
+            <span class="s0"># check the URL</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">urlparse</span><span class="s3">(</span><span class="s1">url</span><span class="s3">)</span>
+                <span class="s1">nameservers</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">nameserver</span><span class="s3">.</span><span class="s1">DoHNameserver</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">bootstrap_address</span><span class="s3">))</span>
+            <span class="s2">except </span><span class="s1">Exception</span><span class="s3">:</span>
+                <span class="s0"># continue processing other ALPN types</span>
+                <span class="s2">pass</span>
+        <span class="s2">if </span><span class="s7">b&quot;dot&quot; </span><span class="s2">in </span><span class="s1">alpns</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">port </span><span class="s2">is None</span><span class="s3">:</span>
+                <span class="s1">port </span><span class="s3">= </span><span class="s6">853</span>
+            <span class="s1">nameservers</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span>
+                <span class="s1">dns</span><span class="s3">.</span><span class="s1">nameserver</span><span class="s3">.</span><span class="s1">DoTNameserver</span><span class="s3">(</span><span class="s1">bootstrap_address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">host</span><span class="s3">)</span>
+            <span class="s3">)</span>
+        <span class="s2">if </span><span class="s7">b&quot;doq&quot; </span><span class="s2">in </span><span class="s1">alpns</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">port </span><span class="s2">is None</span><span class="s3">:</span>
+                <span class="s1">port </span><span class="s3">= </span><span class="s6">853</span>
+            <span class="s1">nameservers</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span>
+                <span class="s1">dns</span><span class="s3">.</span><span class="s1">nameserver</span><span class="s3">.</span><span class="s1">DoQNameserver</span><span class="s3">(</span><span class="s1">bootstrap_address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s2">True</span><span class="s3">, </span><span class="s1">host</span><span class="s3">)</span>
+            <span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">len</span><span class="s3">(</span><span class="s1">nameservers</span><span class="s3">) &gt; </span><span class="s6">0</span><span class="s3">:</span>
+            <span class="s1">infos</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">_SVCBInfo</span><span class="s3">(</span><span class="s1">bootstrap_address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">host</span><span class="s3">, </span><span class="s1">nameservers</span><span class="s3">))</span>
+    <span class="s2">return </span><span class="s1">infos</span>
+
+
+<span class="s2">def </span><span class="s1">_get_nameservers_sync</span><span class="s3">(</span><span class="s1">answer</span><span class="s3">, </span><span class="s1">lifetime</span><span class="s3">):</span>
+    <span class="s5">&quot;&quot;&quot;Return a list of TLS-validated resolver nameservers extracted from an SVCB 
+    answer.&quot;&quot;&quot;</span>
+    <span class="s1">nameservers </span><span class="s3">= []</span>
+    <span class="s1">infos </span><span class="s3">= </span><span class="s1">_extract_nameservers_from_svcb</span><span class="s3">(</span><span class="s1">answer</span><span class="s3">)</span>
+    <span class="s2">for </span><span class="s1">info </span><span class="s2">in </span><span class="s1">infos</span><span class="s3">:</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">info</span><span class="s3">.</span><span class="s1">ddr_tls_check_sync</span><span class="s3">(</span><span class="s1">lifetime</span><span class="s3">):</span>
+                <span class="s1">nameservers</span><span class="s3">.</span><span class="s1">extend</span><span class="s3">(</span><span class="s1">info</span><span class="s3">.</span><span class="s1">nameservers</span><span class="s3">)</span>
+        <span class="s2">except </span><span class="s1">Exception</span><span class="s3">:</span>
+            <span class="s2">pass</span>
+    <span class="s2">return </span><span class="s1">nameservers</span>
+
+
+<span class="s2">async def </span><span class="s1">_get_nameservers_async</span><span class="s3">(</span><span class="s1">answer</span><span class="s3">, </span><span class="s1">lifetime</span><span class="s3">):</span>
+    <span class="s5">&quot;&quot;&quot;Return a list of TLS-validated resolver nameservers extracted from an SVCB 
+    answer.&quot;&quot;&quot;</span>
+    <span class="s1">nameservers </span><span class="s3">= []</span>
+    <span class="s1">infos </span><span class="s3">= </span><span class="s1">_extract_nameservers_from_svcb</span><span class="s3">(</span><span class="s1">answer</span><span class="s3">)</span>
+    <span class="s2">for </span><span class="s1">info </span><span class="s2">in </span><span class="s1">infos</span><span class="s3">:</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s2">if await </span><span class="s1">info</span><span class="s3">.</span><span class="s1">ddr_tls_check_async</span><span class="s3">(</span><span class="s1">lifetime</span><span class="s3">):</span>
+                <span class="s1">nameservers</span><span class="s3">.</span><span class="s1">extend</span><span class="s3">(</span><span class="s1">info</span><span class="s3">.</span><span class="s1">nameservers</span><span class="s3">)</span>
+        <span class="s2">except </span><span class="s1">Exception</span><span class="s3">:</span>
+            <span class="s2">pass</span>
+    <span class="s2">return </span><span class="s1">nameservers</span>
+</pre>
+</body>
+</html>

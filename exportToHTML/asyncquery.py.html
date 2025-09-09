@@ -1,0 +1,937 @@
+<html>
+<head>
+<title>asyncquery.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+asyncquery.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;Talk to a DNS server.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">base64</span>
+<span class="s3">import </span><span class="s1">contextlib</span>
+<span class="s3">import </span><span class="s1">random</span>
+<span class="s3">import </span><span class="s1">socket</span>
+<span class="s3">import </span><span class="s1">struct</span>
+<span class="s3">import </span><span class="s1">time</span>
+<span class="s3">import </span><span class="s1">urllib</span><span class="s4">.</span><span class="s1">parse</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Any</span><span class="s4">, </span><span class="s1">Dict</span><span class="s4">, </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Tuple</span><span class="s4">, </span><span class="s1">Union</span><span class="s4">, </span><span class="s1">cast</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rcode</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">transaction</span>
+<span class="s3">from </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_asyncbackend </span><span class="s3">import </span><span class="s1">NullContext</span>
+<span class="s3">from </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">query </span><span class="s3">import </span><span class="s4">(</span>
+    <span class="s1">BadResponse</span><span class="s4">,</span>
+    <span class="s1">HTTPVersion</span><span class="s4">,</span>
+    <span class="s1">NoDOH</span><span class="s4">,</span>
+    <span class="s1">NoDOQ</span><span class="s4">,</span>
+    <span class="s1">UDPMode</span><span class="s4">,</span>
+    <span class="s1">_check_status</span><span class="s4">,</span>
+    <span class="s1">_compute_times</span><span class="s4">,</span>
+    <span class="s1">_make_dot_ssl_context</span><span class="s4">,</span>
+    <span class="s1">_matches_destination</span><span class="s4">,</span>
+    <span class="s1">_remaining</span><span class="s4">,</span>
+    <span class="s1">have_doh</span><span class="s4">,</span>
+    <span class="s1">ssl</span><span class="s4">,</span>
+<span class="s4">)</span>
+
+<span class="s3">if </span><span class="s1">have_doh</span><span class="s4">:</span>
+    <span class="s3">import </span><span class="s1">httpx</span>
+
+<span class="s0"># for brevity</span>
+<span class="s1">_lltuple </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">low_level_address_tuple</span>
+
+
+<span class="s3">def </span><span class="s1">_source_tuple</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">address</span><span class="s4">, </span><span class="s1">port</span><span class="s4">):</span>
+    <span class="s0"># Make a high level source tuple, or return None if address and port</span>
+    <span class="s0"># are both None</span>
+    <span class="s3">if </span><span class="s1">address </span><span class="s3">or </span><span class="s1">port</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">address </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">af </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET</span><span class="s4">:</span>
+                <span class="s1">address </span><span class="s4">= </span><span class="s5">&quot;0.0.0.0&quot;</span>
+            <span class="s3">elif </span><span class="s1">af </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET6</span><span class="s4">:</span>
+                <span class="s1">address </span><span class="s4">= </span><span class="s5">&quot;::&quot;</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">NotImplementedError</span><span class="s4">(</span><span class="s5">f&quot;unknown address family </span><span class="s3">{</span><span class="s1">af</span><span class="s3">}</span><span class="s5">&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s4">(</span><span class="s1">address</span><span class="s4">, </span><span class="s1">port</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s3">return None</span>
+
+
+<span class="s3">def </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">, </span><span class="s1">now</span><span class="s4">=</span><span class="s3">None</span><span class="s4">):</span>
+    <span class="s3">if </span><span class="s1">expiration </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s3">if not </span><span class="s1">now</span><span class="s4">:</span>
+            <span class="s1">now </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+        <span class="s3">return </span><span class="s1">max</span><span class="s4">(</span><span class="s1">expiration </span><span class="s4">- </span><span class="s1">now</span><span class="s4">, </span><span class="s6">0</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s3">return None</span>
+
+
+<span class="s3">async def </span><span class="s1">send_udp</span><span class="s4">(</span>
+    <span class="s1">sock</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">DatagramSocket</span><span class="s4">,</span>
+    <span class="s1">what</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">],</span>
+    <span class="s1">destination</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">,</span>
+    <span class="s1">expiration</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Tuple</span><span class="s4">[</span><span class="s1">int</span><span class="s4">, </span><span class="s1">float</span><span class="s4">]:</span>
+    <span class="s2">&quot;&quot;&quot;Send a DNS message to the specified UDP socket. 
+ 
+    *sock*, a ``dns.asyncbackend.DatagramSocket``. 
+ 
+    *what*, a ``bytes`` or ``dns.message.Message``, the message to send. 
+ 
+    *destination*, a destination tuple appropriate for the address family 
+    of the socket, specifying where to send the query. 
+ 
+    *expiration*, a ``float`` or ``None``, the absolute time at which 
+    a timeout exception should be raised.  If ``None``, no timeout will 
+    occur.  The expiration value is meaningless for the asyncio backend, as 
+    asyncio's transport sendto() never blocks. 
+ 
+    Returns an ``(int, float)`` tuple of bytes sent and the sent time. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">what</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">):</span>
+        <span class="s1">what </span><span class="s4">= </span><span class="s1">what</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+    <span class="s1">sent_time </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+    <span class="s1">n </span><span class="s4">= </span><span class="s3">await </span><span class="s1">sock</span><span class="s4">.</span><span class="s1">sendto</span><span class="s4">(</span><span class="s1">what</span><span class="s4">, </span><span class="s1">destination</span><span class="s4">, </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">, </span><span class="s1">sent_time</span><span class="s4">))</span>
+    <span class="s3">return </span><span class="s4">(</span><span class="s1">n</span><span class="s4">, </span><span class="s1">sent_time</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">receive_udp</span><span class="s4">(</span>
+    <span class="s1">sock</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">DatagramSocket</span><span class="s4">,</span>
+    <span class="s1">destination</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">expiration</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">ignore_unexpected</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">keyring</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">Key</span><span class="s4">]] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">request_mac</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">] = </span><span class="s7">b&quot;&quot;</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">raise_on_truncation</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_errors</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">query</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Any</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Read a DNS message from a UDP socket. 
+ 
+    *sock*, a ``dns.asyncbackend.DatagramSocket``. 
+ 
+    See :py:func:`dns.query.receive_udp()` for the documentation of the other 
+    parameters, and exceptions. 
+ 
+    Returns a ``(dns.message.Message, float, tuple)`` tuple of the received message, the 
+    received time, and the address where the message arrived from. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">wire </span><span class="s4">= </span><span class="s7">b&quot;&quot;</span>
+    <span class="s3">while True</span><span class="s4">:</span>
+        <span class="s4">(</span><span class="s1">wire</span><span class="s4">, </span><span class="s1">from_address</span><span class="s4">) = </span><span class="s3">await </span><span class="s1">sock</span><span class="s4">.</span><span class="s1">recvfrom</span><span class="s4">(</span><span class="s6">65535</span><span class="s4">, </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">))</span>
+        <span class="s3">if not </span><span class="s1">_matches_destination</span><span class="s4">(</span>
+            <span class="s1">sock</span><span class="s4">.</span><span class="s1">family</span><span class="s4">, </span><span class="s1">from_address</span><span class="s4">, </span><span class="s1">destination</span><span class="s4">, </span><span class="s1">ignore_unexpected</span>
+        <span class="s4">):</span>
+            <span class="s3">continue</span>
+        <span class="s1">received_time </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">r </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">from_wire</span><span class="s4">(</span>
+                <span class="s1">wire</span><span class="s4">,</span>
+                <span class="s1">keyring</span><span class="s4">=</span><span class="s1">keyring</span><span class="s4">,</span>
+                <span class="s1">request_mac</span><span class="s4">=</span><span class="s1">request_mac</span><span class="s4">,</span>
+                <span class="s1">one_rr_per_rrset</span><span class="s4">=</span><span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+                <span class="s1">ignore_trailing</span><span class="s4">=</span><span class="s1">ignore_trailing</span><span class="s4">,</span>
+                <span class="s1">raise_on_truncation</span><span class="s4">=</span><span class="s1">raise_on_truncation</span><span class="s4">,</span>
+            <span class="s4">)</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Truncated </span><span class="s3">as </span><span class="s1">e</span><span class="s4">:</span>
+            <span class="s0"># See the comment in query.py for details.</span>
+            <span class="s3">if </span><span class="s4">(</span>
+                <span class="s1">ignore_errors</span>
+                <span class="s3">and </span><span class="s1">query </span><span class="s3">is not None</span>
+                <span class="s3">and not </span><span class="s1">query</span><span class="s4">.</span><span class="s1">is_response</span><span class="s4">(</span><span class="s1">e</span><span class="s4">.</span><span class="s1">message</span><span class="s4">())</span>
+            <span class="s4">):</span>
+                <span class="s3">continue</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s3">raise</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">ignore_errors</span><span class="s4">:</span>
+                <span class="s3">continue</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s3">raise</span>
+        <span class="s3">if </span><span class="s1">ignore_errors </span><span class="s3">and </span><span class="s1">query </span><span class="s3">is not None and not </span><span class="s1">query</span><span class="s4">.</span><span class="s1">is_response</span><span class="s4">(</span><span class="s1">r</span><span class="s4">):</span>
+            <span class="s3">continue</span>
+        <span class="s3">return </span><span class="s4">(</span><span class="s1">r</span><span class="s4">, </span><span class="s1">received_time</span><span class="s4">, </span><span class="s1">from_address</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">udp</span><span class="s4">(</span>
+    <span class="s1">q</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">53</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,</span>
+    <span class="s1">ignore_unexpected</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">raise_on_truncation</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">sock</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">DatagramSocket</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">ignore_errors</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Return the response obtained after sending a query via UDP. 
+ 
+    *sock*, a ``dns.asyncbackend.DatagramSocket``, or ``None``, 
+    the socket to use for the query.  If ``None``, the default, a 
+    socket is created.  Note that if a socket is provided, the 
+    *source*, *source_port*, and *backend* are ignored. 
+ 
+    *backend*, a ``dns.asyncbackend.Backend``, or ``None``.  If ``None``, 
+    the default, then dnspython will use the default backend. 
+ 
+    See :py:func:`dns.query.udp()` for the documentation of the other 
+    parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">wire </span><span class="s4">= </span><span class="s1">q</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+    <span class="s4">(</span><span class="s1">begin_time</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">) = </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+    <span class="s1">af </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">where</span><span class="s4">)</span>
+    <span class="s1">destination </span><span class="s4">= </span><span class="s1">_lltuple</span><span class="s4">((</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">), </span><span class="s1">af</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">sock</span><span class="s4">:</span>
+        <span class="s1">cm</span><span class="s4">: </span><span class="s1">contextlib</span><span class="s4">.</span><span class="s1">AbstractAsyncContextManager </span><span class="s4">= </span><span class="s1">NullContext</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s3">if not </span><span class="s1">backend</span><span class="s4">:</span>
+            <span class="s1">backend </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">get_default_backend</span><span class="s4">()</span>
+        <span class="s1">stuple </span><span class="s4">= </span><span class="s1">_source_tuple</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">source</span><span class="s4">, </span><span class="s1">source_port</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">datagram_connection_required</span><span class="s4">():</span>
+            <span class="s1">dtuple </span><span class="s4">= (</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">dtuple </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s1">cm </span><span class="s4">= </span><span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">make_socket</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_DGRAM</span><span class="s4">, </span><span class="s6">0</span><span class="s4">, </span><span class="s1">stuple</span><span class="s4">, </span><span class="s1">dtuple</span><span class="s4">)</span>
+    <span class="s3">async with </span><span class="s1">cm </span><span class="s3">as </span><span class="s1">s</span><span class="s4">:</span>
+        <span class="s3">await </span><span class="s1">send_udp</span><span class="s4">(</span><span class="s1">s</span><span class="s4">, </span><span class="s1">wire</span><span class="s4">, </span><span class="s1">destination</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">)</span>
+        <span class="s4">(</span><span class="s1">r</span><span class="s4">, </span><span class="s1">received_time</span><span class="s4">, </span><span class="s1">_</span><span class="s4">) = </span><span class="s3">await </span><span class="s1">receive_udp</span><span class="s4">(</span>
+            <span class="s1">s</span><span class="s4">,</span>
+            <span class="s1">destination</span><span class="s4">,</span>
+            <span class="s1">expiration</span><span class="s4">,</span>
+            <span class="s1">ignore_unexpected</span><span class="s4">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+            <span class="s1">q</span><span class="s4">.</span><span class="s1">keyring</span><span class="s4">,</span>
+            <span class="s1">q</span><span class="s4">.</span><span class="s1">mac</span><span class="s4">,</span>
+            <span class="s1">ignore_trailing</span><span class="s4">,</span>
+            <span class="s1">raise_on_truncation</span><span class="s4">,</span>
+            <span class="s1">ignore_errors</span><span class="s4">,</span>
+            <span class="s1">q</span><span class="s4">,</span>
+        <span class="s4">)</span>
+        <span class="s1">r</span><span class="s4">.</span><span class="s1">time </span><span class="s4">= </span><span class="s1">received_time </span><span class="s4">- </span><span class="s1">begin_time</span>
+        <span class="s0"># We don't need to check q.is_response() if we are in ignore_errors mode</span>
+        <span class="s0"># as receive_udp() will have checked it.</span>
+        <span class="s3">if not </span><span class="s4">(</span><span class="s1">ignore_errors </span><span class="s3">or </span><span class="s1">q</span><span class="s4">.</span><span class="s1">is_response</span><span class="s4">(</span><span class="s1">r</span><span class="s4">)):</span>
+            <span class="s3">raise </span><span class="s1">BadResponse</span>
+        <span class="s3">return </span><span class="s1">r</span>
+
+
+<span class="s3">async def </span><span class="s1">udp_with_fallback</span><span class="s4">(</span>
+    <span class="s1">q</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">53</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,</span>
+    <span class="s1">ignore_unexpected</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">udp_sock</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">DatagramSocket</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">tcp_sock</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">StreamSocket</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">ignore_errors</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Tuple</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">, </span><span class="s1">bool</span><span class="s4">]:</span>
+    <span class="s2">&quot;&quot;&quot;Return the response to the query, trying UDP first and falling back 
+    to TCP if UDP results in a truncated response. 
+ 
+    *udp_sock*, a ``dns.asyncbackend.DatagramSocket``, or ``None``, 
+    the socket to use for the UDP query.  If ``None``, the default, a 
+    socket is created.  Note that if a socket is provided the *source*, 
+    *source_port*, and *backend* are ignored for the UDP query. 
+ 
+    *tcp_sock*, a ``dns.asyncbackend.StreamSocket``, or ``None``, the 
+    socket to use for the TCP query.  If ``None``, the default, a 
+    socket is created.  Note that if a socket is provided *where*, 
+    *source*, *source_port*, and *backend*  are ignored for the TCP query. 
+ 
+    *backend*, a ``dns.asyncbackend.Backend``, or ``None``.  If ``None``, 
+    the default, then dnspython will use the default backend. 
+ 
+    See :py:func:`dns.query.udp_with_fallback()` for the documentation 
+    of the other parameters, exceptions, and return type of this 
+    method. 
+    &quot;&quot;&quot;</span>
+    <span class="s3">try</span><span class="s4">:</span>
+        <span class="s1">response </span><span class="s4">= </span><span class="s3">await </span><span class="s1">udp</span><span class="s4">(</span>
+            <span class="s1">q</span><span class="s4">,</span>
+            <span class="s1">where</span><span class="s4">,</span>
+            <span class="s1">timeout</span><span class="s4">,</span>
+            <span class="s1">port</span><span class="s4">,</span>
+            <span class="s1">source</span><span class="s4">,</span>
+            <span class="s1">source_port</span><span class="s4">,</span>
+            <span class="s1">ignore_unexpected</span><span class="s4">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+            <span class="s1">ignore_trailing</span><span class="s4">,</span>
+            <span class="s3">True</span><span class="s4">,</span>
+            <span class="s1">udp_sock</span><span class="s4">,</span>
+            <span class="s1">backend</span><span class="s4">,</span>
+            <span class="s1">ignore_errors</span><span class="s4">,</span>
+        <span class="s4">)</span>
+        <span class="s3">return </span><span class="s4">(</span><span class="s1">response</span><span class="s4">, </span><span class="s3">False</span><span class="s4">)</span>
+    <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Truncated</span><span class="s4">:</span>
+        <span class="s1">response </span><span class="s4">= </span><span class="s3">await </span><span class="s1">tcp</span><span class="s4">(</span>
+            <span class="s1">q</span><span class="s4">,</span>
+            <span class="s1">where</span><span class="s4">,</span>
+            <span class="s1">timeout</span><span class="s4">,</span>
+            <span class="s1">port</span><span class="s4">,</span>
+            <span class="s1">source</span><span class="s4">,</span>
+            <span class="s1">source_port</span><span class="s4">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+            <span class="s1">ignore_trailing</span><span class="s4">,</span>
+            <span class="s1">tcp_sock</span><span class="s4">,</span>
+            <span class="s1">backend</span><span class="s4">,</span>
+        <span class="s4">)</span>
+        <span class="s3">return </span><span class="s4">(</span><span class="s1">response</span><span class="s4">, </span><span class="s3">True</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">send_tcp</span><span class="s4">(</span>
+    <span class="s1">sock</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">StreamSocket</span><span class="s4">,</span>
+    <span class="s1">what</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">],</span>
+    <span class="s1">expiration</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Tuple</span><span class="s4">[</span><span class="s1">int</span><span class="s4">, </span><span class="s1">float</span><span class="s4">]:</span>
+    <span class="s2">&quot;&quot;&quot;Send a DNS message to the specified TCP socket. 
+ 
+    *sock*, a ``dns.asyncbackend.StreamSocket``. 
+ 
+    See :py:func:`dns.query.send_tcp()` for the documentation of the other 
+    parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">what</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">):</span>
+        <span class="s1">tcpmsg </span><span class="s4">= </span><span class="s1">what</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">prepend_length</span><span class="s4">=</span><span class="s3">True</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s0"># copying the wire into tcpmsg is inefficient, but lets us</span>
+        <span class="s0"># avoid writev() or doing a short write that would get pushed</span>
+        <span class="s0"># onto the net</span>
+        <span class="s1">tcpmsg </span><span class="s4">= </span><span class="s1">len</span><span class="s4">(</span><span class="s1">what</span><span class="s4">).</span><span class="s1">to_bytes</span><span class="s4">(</span><span class="s6">2</span><span class="s4">, </span><span class="s5">&quot;big&quot;</span><span class="s4">) + </span><span class="s1">what</span>
+    <span class="s1">sent_time </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+    <span class="s3">await </span><span class="s1">sock</span><span class="s4">.</span><span class="s1">sendall</span><span class="s4">(</span><span class="s1">tcpmsg</span><span class="s4">, </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">, </span><span class="s1">sent_time</span><span class="s4">))</span>
+    <span class="s3">return </span><span class="s4">(</span><span class="s1">len</span><span class="s4">(</span><span class="s1">tcpmsg</span><span class="s4">), </span><span class="s1">sent_time</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">_read_exactly</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">, </span><span class="s1">count</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Read the specified number of bytes from stream.  Keep trying until we 
+    either get the desired amount, or we hit EOF. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">s </span><span class="s4">= </span><span class="s7">b&quot;&quot;</span>
+    <span class="s3">while </span><span class="s1">count </span><span class="s4">&gt; </span><span class="s6">0</span><span class="s4">:</span>
+        <span class="s1">n </span><span class="s4">= </span><span class="s3">await </span><span class="s1">sock</span><span class="s4">.</span><span class="s1">recv</span><span class="s4">(</span><span class="s1">count</span><span class="s4">, </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">))</span>
+        <span class="s3">if </span><span class="s1">n </span><span class="s4">== </span><span class="s7">b&quot;&quot;</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">EOFError</span><span class="s4">(</span><span class="s5">&quot;EOF&quot;</span><span class="s4">)</span>
+        <span class="s1">count </span><span class="s4">= </span><span class="s1">count </span><span class="s4">- </span><span class="s1">len</span><span class="s4">(</span><span class="s1">n</span><span class="s4">)</span>
+        <span class="s1">s </span><span class="s4">= </span><span class="s1">s </span><span class="s4">+ </span><span class="s1">n</span>
+    <span class="s3">return </span><span class="s1">s</span>
+
+
+<span class="s3">async def </span><span class="s1">receive_tcp</span><span class="s4">(</span>
+    <span class="s1">sock</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">StreamSocket</span><span class="s4">,</span>
+    <span class="s1">expiration</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">keyring</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">Key</span><span class="s4">]] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">request_mac</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">] = </span><span class="s7">b&quot;&quot;</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Tuple</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">, </span><span class="s1">float</span><span class="s4">]:</span>
+    <span class="s2">&quot;&quot;&quot;Read a DNS message from a TCP socket. 
+ 
+    *sock*, a ``dns.asyncbackend.StreamSocket``. 
+ 
+    See :py:func:`dns.query.receive_tcp()` for the documentation of the other 
+    parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">ldata </span><span class="s4">= </span><span class="s3">await </span><span class="s1">_read_exactly</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">, </span><span class="s6">2</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">)</span>
+    <span class="s4">(</span><span class="s1">l</span><span class="s4">,) = </span><span class="s1">struct</span><span class="s4">.</span><span class="s1">unpack</span><span class="s4">(</span><span class="s5">&quot;!H&quot;</span><span class="s4">, </span><span class="s1">ldata</span><span class="s4">)</span>
+    <span class="s1">wire </span><span class="s4">= </span><span class="s3">await </span><span class="s1">_read_exactly</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">, </span><span class="s1">l</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">)</span>
+    <span class="s1">received_time </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+    <span class="s1">r </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">from_wire</span><span class="s4">(</span>
+        <span class="s1">wire</span><span class="s4">,</span>
+        <span class="s1">keyring</span><span class="s4">=</span><span class="s1">keyring</span><span class="s4">,</span>
+        <span class="s1">request_mac</span><span class="s4">=</span><span class="s1">request_mac</span><span class="s4">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s4">=</span><span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+        <span class="s1">ignore_trailing</span><span class="s4">=</span><span class="s1">ignore_trailing</span><span class="s4">,</span>
+    <span class="s4">)</span>
+    <span class="s3">return </span><span class="s4">(</span><span class="s1">r</span><span class="s4">, </span><span class="s1">received_time</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">tcp</span><span class="s4">(</span>
+    <span class="s1">q</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">53</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">sock</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">StreamSocket</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Return the response obtained after sending a query via TCP. 
+ 
+    *sock*, a ``dns.asyncbacket.StreamSocket``, or ``None``, the 
+    socket to use for the query.  If ``None``, the default, a socket 
+    is created.  Note that if a socket is provided 
+    *where*, *port*, *source*, *source_port*, and *backend* are ignored. 
+ 
+    *backend*, a ``dns.asyncbackend.Backend``, or ``None``.  If ``None``, 
+    the default, then dnspython will use the default backend. 
+ 
+    See :py:func:`dns.query.tcp()` for the documentation of the other 
+    parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">wire </span><span class="s4">= </span><span class="s1">q</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+    <span class="s4">(</span><span class="s1">begin_time</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">) = </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">sock</span><span class="s4">:</span>
+        <span class="s0"># Verify that the socket is connected, as if it's not connected,</span>
+        <span class="s0"># it's not writable, and the polling in send_tcp() will time out or</span>
+        <span class="s0"># hang forever.</span>
+        <span class="s3">await </span><span class="s1">sock</span><span class="s4">.</span><span class="s1">getpeername</span><span class="s4">()</span>
+        <span class="s1">cm</span><span class="s4">: </span><span class="s1">contextlib</span><span class="s4">.</span><span class="s1">AbstractAsyncContextManager </span><span class="s4">= </span><span class="s1">NullContext</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s0"># These are simple (address, port) pairs, not family-dependent tuples</span>
+        <span class="s0"># you pass to low-level socket code.</span>
+        <span class="s1">af </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">where</span><span class="s4">)</span>
+        <span class="s1">stuple </span><span class="s4">= </span><span class="s1">_source_tuple</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">source</span><span class="s4">, </span><span class="s1">source_port</span><span class="s4">)</span>
+        <span class="s1">dtuple </span><span class="s4">= (</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">)</span>
+        <span class="s3">if not </span><span class="s1">backend</span><span class="s4">:</span>
+            <span class="s1">backend </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">get_default_backend</span><span class="s4">()</span>
+        <span class="s1">cm </span><span class="s4">= </span><span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">make_socket</span><span class="s4">(</span>
+            <span class="s1">af</span><span class="s4">, </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_STREAM</span><span class="s4">, </span><span class="s6">0</span><span class="s4">, </span><span class="s1">stuple</span><span class="s4">, </span><span class="s1">dtuple</span><span class="s4">, </span><span class="s1">timeout</span>
+        <span class="s4">)</span>
+    <span class="s3">async with </span><span class="s1">cm </span><span class="s3">as </span><span class="s1">s</span><span class="s4">:</span>
+        <span class="s3">await </span><span class="s1">send_tcp</span><span class="s4">(</span><span class="s1">s</span><span class="s4">, </span><span class="s1">wire</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">)</span>
+        <span class="s4">(</span><span class="s1">r</span><span class="s4">, </span><span class="s1">received_time</span><span class="s4">) = </span><span class="s3">await </span><span class="s1">receive_tcp</span><span class="s4">(</span>
+            <span class="s1">s</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">, </span><span class="s1">one_rr_per_rrset</span><span class="s4">, </span><span class="s1">q</span><span class="s4">.</span><span class="s1">keyring</span><span class="s4">, </span><span class="s1">q</span><span class="s4">.</span><span class="s1">mac</span><span class="s4">, </span><span class="s1">ignore_trailing</span>
+        <span class="s4">)</span>
+        <span class="s1">r</span><span class="s4">.</span><span class="s1">time </span><span class="s4">= </span><span class="s1">received_time </span><span class="s4">- </span><span class="s1">begin_time</span>
+        <span class="s3">if not </span><span class="s1">q</span><span class="s4">.</span><span class="s1">is_response</span><span class="s4">(</span><span class="s1">r</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">BadResponse</span>
+        <span class="s3">return </span><span class="s1">r</span>
+
+
+<span class="s3">async def </span><span class="s1">tls</span><span class="s4">(</span>
+    <span class="s1">q</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">853</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">sock</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">StreamSocket</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">ssl_context</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">ssl</span><span class="s4">.</span><span class="s1">SSLContext</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">server_hostname</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">verify</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s3">True</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Return the response obtained after sending a query via TLS. 
+ 
+    *sock*, an ``asyncbackend.StreamSocket``, or ``None``, the socket 
+    to use for the query.  If ``None``, the default, a socket is 
+    created.  Note that if a socket is provided, it must be a 
+    connected SSL stream socket, and *where*, *port*, 
+    *source*, *source_port*, *backend*, *ssl_context*, and *server_hostname* 
+    are ignored. 
+ 
+    *backend*, a ``dns.asyncbackend.Backend``, or ``None``.  If ``None``, 
+    the default, then dnspython will use the default backend. 
+ 
+    See :py:func:`dns.query.tls()` for the documentation of the other 
+    parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+    <span class="s4">(</span><span class="s1">begin_time</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">) = </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">sock</span><span class="s4">:</span>
+        <span class="s1">cm</span><span class="s4">: </span><span class="s1">contextlib</span><span class="s4">.</span><span class="s1">AbstractAsyncContextManager </span><span class="s4">= </span><span class="s1">NullContext</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">ssl_context </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">ssl_context </span><span class="s4">= </span><span class="s1">_make_dot_ssl_context</span><span class="s4">(</span><span class="s1">server_hostname</span><span class="s4">, </span><span class="s1">verify</span><span class="s4">)</span>
+        <span class="s1">af </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">where</span><span class="s4">)</span>
+        <span class="s1">stuple </span><span class="s4">= </span><span class="s1">_source_tuple</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">source</span><span class="s4">, </span><span class="s1">source_port</span><span class="s4">)</span>
+        <span class="s1">dtuple </span><span class="s4">= (</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">)</span>
+        <span class="s3">if not </span><span class="s1">backend</span><span class="s4">:</span>
+            <span class="s1">backend </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">get_default_backend</span><span class="s4">()</span>
+        <span class="s1">cm </span><span class="s4">= </span><span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">make_socket</span><span class="s4">(</span>
+            <span class="s1">af</span><span class="s4">,</span>
+            <span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_STREAM</span><span class="s4">,</span>
+            <span class="s6">0</span><span class="s4">,</span>
+            <span class="s1">stuple</span><span class="s4">,</span>
+            <span class="s1">dtuple</span><span class="s4">,</span>
+            <span class="s1">timeout</span><span class="s4">,</span>
+            <span class="s1">ssl_context</span><span class="s4">,</span>
+            <span class="s1">server_hostname</span><span class="s4">,</span>
+        <span class="s4">)</span>
+    <span class="s3">async with </span><span class="s1">cm </span><span class="s3">as </span><span class="s1">s</span><span class="s4">:</span>
+        <span class="s1">timeout </span><span class="s4">= </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">)</span>
+        <span class="s1">response </span><span class="s4">= </span><span class="s3">await </span><span class="s1">tcp</span><span class="s4">(</span>
+            <span class="s1">q</span><span class="s4">,</span>
+            <span class="s1">where</span><span class="s4">,</span>
+            <span class="s1">timeout</span><span class="s4">,</span>
+            <span class="s1">port</span><span class="s4">,</span>
+            <span class="s1">source</span><span class="s4">,</span>
+            <span class="s1">source_port</span><span class="s4">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+            <span class="s1">ignore_trailing</span><span class="s4">,</span>
+            <span class="s1">s</span><span class="s4">,</span>
+            <span class="s1">backend</span><span class="s4">,</span>
+        <span class="s4">)</span>
+        <span class="s1">end_time </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+        <span class="s1">response</span><span class="s4">.</span><span class="s1">time </span><span class="s4">= </span><span class="s1">end_time </span><span class="s4">- </span><span class="s1">begin_time</span>
+        <span class="s3">return </span><span class="s1">response</span>
+
+
+<span class="s3">def </span><span class="s1">_maybe_get_resolver</span><span class="s4">(</span>
+    <span class="s1">resolver</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s5">&quot;dns.asyncresolver.Resolver&quot;</span><span class="s4">],</span>
+<span class="s4">) </span><span class="s1">-&gt; </span><span class="s5">&quot;dns.asyncresolver.Resolver&quot;</span><span class="s4">:</span>
+    <span class="s0"># We need a separate method for this to avoid overriding the global</span>
+    <span class="s0"># variable &quot;dns&quot; with the as-yet undefined local variable &quot;dns&quot;</span>
+    <span class="s0"># in https().</span>
+    <span class="s3">if </span><span class="s1">resolver </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s0"># pylint: disable=import-outside-toplevel,redefined-outer-name</span>
+        <span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncresolver</span>
+
+        <span class="s1">resolver </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncresolver</span><span class="s4">.</span><span class="s1">Resolver</span><span class="s4">()</span>
+    <span class="s3">return </span><span class="s1">resolver</span>
+
+
+<span class="s3">async def </span><span class="s1">https</span><span class="s4">(</span>
+    <span class="s1">q</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">443</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,  </span><span class="s0"># pylint: disable=W0613</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">client</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s5">&quot;httpx.AsyncClient&quot;</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">path</span><span class="s4">: </span><span class="s1">str </span><span class="s4">= </span><span class="s5">&quot;/dns-query&quot;</span><span class="s4">,</span>
+    <span class="s1">post</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s1">verify</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s1">bootstrap_address</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">resolver</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s5">&quot;dns.asyncresolver.Resolver&quot;</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">family</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_UNSPEC</span><span class="s4">,</span>
+    <span class="s1">http_version</span><span class="s4">: </span><span class="s1">HTTPVersion </span><span class="s4">= </span><span class="s1">HTTPVersion</span><span class="s4">.</span><span class="s1">DEFAULT</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Return the response obtained after sending a query via DNS-over-HTTPS. 
+ 
+    *client*, a ``httpx.AsyncClient``.  If provided, the client to use for 
+    the query. 
+ 
+    Unlike the other dnspython async functions, a backend cannot be provided 
+    in this function because httpx always auto-detects the async backend. 
+ 
+    See :py:func:`dns.query.https()` for the documentation of the other 
+    parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">try</span><span class="s4">:</span>
+        <span class="s1">af </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">where</span><span class="s4">)</span>
+    <span class="s3">except </span><span class="s1">ValueError</span><span class="s4">:</span>
+        <span class="s1">af </span><span class="s4">= </span><span class="s3">None</span>
+    <span class="s3">if </span><span class="s1">af </span><span class="s3">is not None and </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">is_address</span><span class="s4">(</span><span class="s1">where</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">af </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET</span><span class="s4">:</span>
+            <span class="s1">url </span><span class="s4">= </span><span class="s5">f&quot;https://</span><span class="s3">{</span><span class="s1">where</span><span class="s3">}</span><span class="s5">:</span><span class="s3">{</span><span class="s1">port</span><span class="s3">}{</span><span class="s1">path</span><span class="s3">}</span><span class="s5">&quot;</span>
+        <span class="s3">elif </span><span class="s1">af </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET6</span><span class="s4">:</span>
+            <span class="s1">url </span><span class="s4">= </span><span class="s5">f&quot;https://[</span><span class="s3">{</span><span class="s1">where</span><span class="s3">}</span><span class="s5">]:</span><span class="s3">{</span><span class="s1">port</span><span class="s3">}{</span><span class="s1">path</span><span class="s3">}</span><span class="s5">&quot;</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">url </span><span class="s4">= </span><span class="s1">where</span>
+
+    <span class="s1">extensions </span><span class="s4">= {}</span>
+    <span class="s3">if </span><span class="s1">bootstrap_address </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s0"># pylint: disable=possibly-used-before-assignment</span>
+        <span class="s1">parsed </span><span class="s4">= </span><span class="s1">urllib</span><span class="s4">.</span><span class="s1">parse</span><span class="s4">.</span><span class="s1">urlparse</span><span class="s4">(</span><span class="s1">url</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">hostname </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s5">&quot;no hostname in URL&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">is_address</span><span class="s4">(</span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">hostname</span><span class="s4">):</span>
+            <span class="s1">bootstrap_address </span><span class="s4">= </span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">hostname</span>
+            <span class="s1">extensions</span><span class="s4">[</span><span class="s5">&quot;sni_hostname&quot;</span><span class="s4">] = </span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">hostname</span>
+        <span class="s3">if </span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">port </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">port </span><span class="s4">= </span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">port</span>
+
+    <span class="s3">if </span><span class="s1">http_version </span><span class="s4">== </span><span class="s1">HTTPVersion</span><span class="s4">.</span><span class="s1">H3 </span><span class="s3">or </span><span class="s4">(</span>
+        <span class="s1">http_version </span><span class="s4">== </span><span class="s1">HTTPVersion</span><span class="s4">.</span><span class="s1">DEFAULT </span><span class="s3">and not </span><span class="s1">have_doh</span>
+    <span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">bootstrap_address </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">resolver </span><span class="s4">= </span><span class="s1">_maybe_get_resolver</span><span class="s4">(</span><span class="s1">resolver</span><span class="s4">)</span>
+            <span class="s3">assert </span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">hostname </span><span class="s3">is not None  </span><span class="s0"># for mypy</span>
+            <span class="s1">answers </span><span class="s4">= </span><span class="s3">await </span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">resolve_name</span><span class="s4">(</span><span class="s1">parsed</span><span class="s4">.</span><span class="s1">hostname</span><span class="s4">, </span><span class="s1">family</span><span class="s4">)</span>
+            <span class="s1">bootstrap_address </span><span class="s4">= </span><span class="s1">random</span><span class="s4">.</span><span class="s1">choice</span><span class="s4">(</span><span class="s1">list</span><span class="s4">(</span><span class="s1">answers</span><span class="s4">.</span><span class="s1">addresses</span><span class="s4">()))</span>
+        <span class="s3">return await </span><span class="s1">_http3</span><span class="s4">(</span>
+            <span class="s1">q</span><span class="s4">,</span>
+            <span class="s1">bootstrap_address</span><span class="s4">,</span>
+            <span class="s1">url</span><span class="s4">,</span>
+            <span class="s1">timeout</span><span class="s4">,</span>
+            <span class="s1">port</span><span class="s4">,</span>
+            <span class="s1">source</span><span class="s4">,</span>
+            <span class="s1">source_port</span><span class="s4">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+            <span class="s1">ignore_trailing</span><span class="s4">,</span>
+            <span class="s1">verify</span><span class="s4">=</span><span class="s1">verify</span><span class="s4">,</span>
+            <span class="s1">post</span><span class="s4">=</span><span class="s1">post</span><span class="s4">,</span>
+        <span class="s4">)</span>
+
+    <span class="s3">if not </span><span class="s1">have_doh</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">NoDOH  </span><span class="s0"># pragma: no cover</span>
+    <span class="s0"># pylint: disable=possibly-used-before-assignment</span>
+    <span class="s3">if </span><span class="s1">client </span><span class="s3">and not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">client</span><span class="s4">, </span><span class="s1">httpx</span><span class="s4">.</span><span class="s1">AsyncClient</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s5">&quot;session parameter must be an httpx.AsyncClient&quot;</span><span class="s4">)</span>
+    <span class="s0"># pylint: enable=possibly-used-before-assignment</span>
+
+    <span class="s1">wire </span><span class="s4">= </span><span class="s1">q</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+    <span class="s1">headers </span><span class="s4">= {</span><span class="s5">&quot;accept&quot;</span><span class="s4">: </span><span class="s5">&quot;application/dns-message&quot;</span><span class="s4">}</span>
+
+    <span class="s1">h1 </span><span class="s4">= </span><span class="s1">http_version </span><span class="s3">in </span><span class="s4">(</span><span class="s1">HTTPVersion</span><span class="s4">.</span><span class="s1">H1</span><span class="s4">, </span><span class="s1">HTTPVersion</span><span class="s4">.</span><span class="s1">DEFAULT</span><span class="s4">)</span>
+    <span class="s1">h2 </span><span class="s4">= </span><span class="s1">http_version </span><span class="s3">in </span><span class="s4">(</span><span class="s1">HTTPVersion</span><span class="s4">.</span><span class="s1">H2</span><span class="s4">, </span><span class="s1">HTTPVersion</span><span class="s4">.</span><span class="s1">DEFAULT</span><span class="s4">)</span>
+
+    <span class="s1">backend </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">get_default_backend</span><span class="s4">()</span>
+
+    <span class="s3">if </span><span class="s1">source </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s1">local_address </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s1">local_port </span><span class="s4">= </span><span class="s6">0</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">local_address </span><span class="s4">= </span><span class="s1">source</span>
+        <span class="s1">local_port </span><span class="s4">= </span><span class="s1">source_port</span>
+
+    <span class="s3">if </span><span class="s1">client</span><span class="s4">:</span>
+        <span class="s1">cm</span><span class="s4">: </span><span class="s1">contextlib</span><span class="s4">.</span><span class="s1">AbstractAsyncContextManager </span><span class="s4">= </span><span class="s1">NullContext</span><span class="s4">(</span><span class="s1">client</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">transport </span><span class="s4">= </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">get_transport_class</span><span class="s4">()(</span>
+            <span class="s1">local_address</span><span class="s4">=</span><span class="s1">local_address</span><span class="s4">,</span>
+            <span class="s1">http1</span><span class="s4">=</span><span class="s1">h1</span><span class="s4">,</span>
+            <span class="s1">http2</span><span class="s4">=</span><span class="s1">h2</span><span class="s4">,</span>
+            <span class="s1">verify</span><span class="s4">=</span><span class="s1">verify</span><span class="s4">,</span>
+            <span class="s1">local_port</span><span class="s4">=</span><span class="s1">local_port</span><span class="s4">,</span>
+            <span class="s1">bootstrap_address</span><span class="s4">=</span><span class="s1">bootstrap_address</span><span class="s4">,</span>
+            <span class="s1">resolver</span><span class="s4">=</span><span class="s1">resolver</span><span class="s4">,</span>
+            <span class="s1">family</span><span class="s4">=</span><span class="s1">family</span><span class="s4">,</span>
+        <span class="s4">)</span>
+
+        <span class="s1">cm </span><span class="s4">= </span><span class="s1">httpx</span><span class="s4">.</span><span class="s1">AsyncClient</span><span class="s4">(</span><span class="s1">http1</span><span class="s4">=</span><span class="s1">h1</span><span class="s4">, </span><span class="s1">http2</span><span class="s4">=</span><span class="s1">h2</span><span class="s4">, </span><span class="s1">verify</span><span class="s4">=</span><span class="s1">verify</span><span class="s4">, </span><span class="s1">transport</span><span class="s4">=</span><span class="s1">transport</span><span class="s4">)</span>
+
+    <span class="s3">async with </span><span class="s1">cm </span><span class="s3">as </span><span class="s1">the_client</span><span class="s4">:</span>
+        <span class="s0"># see https://tools.ietf.org/html/rfc8484#section-4.1.1 for DoH</span>
+        <span class="s0"># GET and POST examples</span>
+        <span class="s3">if </span><span class="s1">post</span><span class="s4">:</span>
+            <span class="s1">headers</span><span class="s4">.</span><span class="s1">update</span><span class="s4">(</span>
+                <span class="s4">{</span>
+                    <span class="s5">&quot;content-type&quot;</span><span class="s4">: </span><span class="s5">&quot;application/dns-message&quot;</span><span class="s4">,</span>
+                    <span class="s5">&quot;content-length&quot;</span><span class="s4">: </span><span class="s1">str</span><span class="s4">(</span><span class="s1">len</span><span class="s4">(</span><span class="s1">wire</span><span class="s4">)),</span>
+                <span class="s4">}</span>
+            <span class="s4">)</span>
+            <span class="s1">response </span><span class="s4">= </span><span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">wait_for</span><span class="s4">(</span>
+                <span class="s1">the_client</span><span class="s4">.</span><span class="s1">post</span><span class="s4">(</span>
+                    <span class="s1">url</span><span class="s4">,</span>
+                    <span class="s1">headers</span><span class="s4">=</span><span class="s1">headers</span><span class="s4">,</span>
+                    <span class="s1">content</span><span class="s4">=</span><span class="s1">wire</span><span class="s4">,</span>
+                    <span class="s1">extensions</span><span class="s4">=</span><span class="s1">extensions</span><span class="s4">,</span>
+                <span class="s4">),</span>
+                <span class="s1">timeout</span><span class="s4">,</span>
+            <span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">wire </span><span class="s4">= </span><span class="s1">base64</span><span class="s4">.</span><span class="s1">urlsafe_b64encode</span><span class="s4">(</span><span class="s1">wire</span><span class="s4">).</span><span class="s1">rstrip</span><span class="s4">(</span><span class="s7">b&quot;=&quot;</span><span class="s4">)</span>
+            <span class="s1">twire </span><span class="s4">= </span><span class="s1">wire</span><span class="s4">.</span><span class="s1">decode</span><span class="s4">()  </span><span class="s0"># httpx does a repr() if we give it bytes</span>
+            <span class="s1">response </span><span class="s4">= </span><span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">wait_for</span><span class="s4">(</span>
+                <span class="s1">the_client</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span>
+                    <span class="s1">url</span><span class="s4">,</span>
+                    <span class="s1">headers</span><span class="s4">=</span><span class="s1">headers</span><span class="s4">,</span>
+                    <span class="s1">params</span><span class="s4">={</span><span class="s5">&quot;dns&quot;</span><span class="s4">: </span><span class="s1">twire</span><span class="s4">},</span>
+                    <span class="s1">extensions</span><span class="s4">=</span><span class="s1">extensions</span><span class="s4">,</span>
+                <span class="s4">),</span>
+                <span class="s1">timeout</span><span class="s4">,</span>
+            <span class="s4">)</span>
+
+    <span class="s0"># see https://tools.ietf.org/html/rfc8484#section-4.2.1 for info about DoH</span>
+    <span class="s0"># status codes</span>
+    <span class="s3">if </span><span class="s1">response</span><span class="s4">.</span><span class="s1">status_code </span><span class="s4">&lt; </span><span class="s6">200 </span><span class="s3">or </span><span class="s1">response</span><span class="s4">.</span><span class="s1">status_code </span><span class="s4">&gt; </span><span class="s6">299</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span>
+            <span class="s5">f&quot;</span><span class="s3">{</span><span class="s1">where</span><span class="s3">} </span><span class="s5">responded with status code </span><span class="s3">{</span><span class="s1">response</span><span class="s4">.</span><span class="s1">status_code</span><span class="s3">}</span><span class="s5">&quot;</span>
+            <span class="s5">f&quot;</span><span class="s3">\n</span><span class="s5">Response body: </span><span class="s3">{</span><span class="s1">response</span><span class="s4">.</span><span class="s1">content</span><span class="s3">!r}</span><span class="s5">&quot;</span>
+        <span class="s4">)</span>
+    <span class="s1">r </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">from_wire</span><span class="s4">(</span>
+        <span class="s1">response</span><span class="s4">.</span><span class="s1">content</span><span class="s4">,</span>
+        <span class="s1">keyring</span><span class="s4">=</span><span class="s1">q</span><span class="s4">.</span><span class="s1">keyring</span><span class="s4">,</span>
+        <span class="s1">request_mac</span><span class="s4">=</span><span class="s1">q</span><span class="s4">.</span><span class="s1">request_mac</span><span class="s4">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s4">=</span><span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+        <span class="s1">ignore_trailing</span><span class="s4">=</span><span class="s1">ignore_trailing</span><span class="s4">,</span>
+    <span class="s4">)</span>
+    <span class="s1">r</span><span class="s4">.</span><span class="s1">time </span><span class="s4">= </span><span class="s1">response</span><span class="s4">.</span><span class="s1">elapsed</span><span class="s4">.</span><span class="s1">total_seconds</span><span class="s4">()</span>
+    <span class="s3">if not </span><span class="s1">q</span><span class="s4">.</span><span class="s1">is_response</span><span class="s4">(</span><span class="s1">r</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">BadResponse</span>
+    <span class="s3">return </span><span class="s1">r</span>
+
+
+<span class="s3">async def </span><span class="s1">_http3</span><span class="s4">(</span>
+    <span class="s1">q</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">url</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">853</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">verify</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">hostname</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">post</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">:</span>
+    <span class="s3">if not </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">have_quic</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">NoDOH</span><span class="s4">(</span><span class="s5">&quot;DNS-over-HTTP3 is not available.&quot;</span><span class="s4">)  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s1">url_parts </span><span class="s4">= </span><span class="s1">urllib</span><span class="s4">.</span><span class="s1">parse</span><span class="s4">.</span><span class="s1">urlparse</span><span class="s4">(</span><span class="s1">url</span><span class="s4">)</span>
+    <span class="s1">hostname </span><span class="s4">= </span><span class="s1">url_parts</span><span class="s4">.</span><span class="s1">hostname</span>
+    <span class="s3">if </span><span class="s1">url_parts</span><span class="s4">.</span><span class="s1">port </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s1">port </span><span class="s4">= </span><span class="s1">url_parts</span><span class="s4">.</span><span class="s1">port</span>
+
+    <span class="s1">q</span><span class="s4">.</span><span class="s1">id </span><span class="s4">= </span><span class="s6">0</span>
+    <span class="s1">wire </span><span class="s4">= </span><span class="s1">q</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+    <span class="s4">(</span><span class="s1">cfactory</span><span class="s4">, </span><span class="s1">mfactory</span><span class="s4">) = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">factories_for_backend</span><span class="s4">(</span><span class="s1">backend</span><span class="s4">)</span>
+
+    <span class="s3">async with </span><span class="s1">cfactory</span><span class="s4">() </span><span class="s3">as </span><span class="s1">context</span><span class="s4">:</span>
+        <span class="s3">async with </span><span class="s1">mfactory</span><span class="s4">(</span>
+            <span class="s1">context</span><span class="s4">, </span><span class="s1">verify_mode</span><span class="s4">=</span><span class="s1">verify</span><span class="s4">, </span><span class="s1">server_name</span><span class="s4">=</span><span class="s1">hostname</span><span class="s4">, </span><span class="s1">h3</span><span class="s4">=</span><span class="s3">True</span>
+        <span class="s4">) </span><span class="s3">as </span><span class="s1">the_manager</span><span class="s4">:</span>
+            <span class="s1">the_connection </span><span class="s4">= </span><span class="s1">the_manager</span><span class="s4">.</span><span class="s1">connect</span><span class="s4">(</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">, </span><span class="s1">source</span><span class="s4">, </span><span class="s1">source_port</span><span class="s4">)</span>
+            <span class="s4">(</span><span class="s1">start</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">) = </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s1">stream </span><span class="s4">= </span><span class="s3">await </span><span class="s1">the_connection</span><span class="s4">.</span><span class="s1">make_stream</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s3">async with </span><span class="s1">stream</span><span class="s4">:</span>
+                <span class="s0"># note that send_h3() does not need await</span>
+                <span class="s1">stream</span><span class="s4">.</span><span class="s1">send_h3</span><span class="s4">(</span><span class="s1">url</span><span class="s4">, </span><span class="s1">wire</span><span class="s4">, </span><span class="s1">post</span><span class="s4">)</span>
+                <span class="s1">wire </span><span class="s4">= </span><span class="s3">await </span><span class="s1">stream</span><span class="s4">.</span><span class="s1">receive</span><span class="s4">(</span><span class="s1">_remaining</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">))</span>
+                <span class="s1">_check_status</span><span class="s4">(</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">headers</span><span class="s4">(), </span><span class="s1">where</span><span class="s4">, </span><span class="s1">wire</span><span class="s4">)</span>
+            <span class="s1">finish </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+        <span class="s1">r </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">from_wire</span><span class="s4">(</span>
+            <span class="s1">wire</span><span class="s4">,</span>
+            <span class="s1">keyring</span><span class="s4">=</span><span class="s1">q</span><span class="s4">.</span><span class="s1">keyring</span><span class="s4">,</span>
+            <span class="s1">request_mac</span><span class="s4">=</span><span class="s1">q</span><span class="s4">.</span><span class="s1">request_mac</span><span class="s4">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s4">=</span><span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+            <span class="s1">ignore_trailing</span><span class="s4">=</span><span class="s1">ignore_trailing</span><span class="s4">,</span>
+        <span class="s4">)</span>
+    <span class="s1">r</span><span class="s4">.</span><span class="s1">time </span><span class="s4">= </span><span class="s1">max</span><span class="s4">(</span><span class="s1">finish </span><span class="s4">- </span><span class="s1">start</span><span class="s4">, </span><span class="s6">0.0</span><span class="s4">)</span>
+    <span class="s3">if not </span><span class="s1">q</span><span class="s4">.</span><span class="s1">is_response</span><span class="s4">(</span><span class="s1">r</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">BadResponse</span>
+    <span class="s3">return </span><span class="s1">r</span>
+
+
+<span class="s3">async def </span><span class="s1">quic</span><span class="s4">(</span>
+    <span class="s1">q</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">853</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,</span>
+    <span class="s1">one_rr_per_rrset</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">ignore_trailing</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">connection</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">AsyncQuicConnection</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">verify</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">hostname</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">server_hostname</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Return the response obtained after sending an asynchronous query via 
+    DNS-over-QUIC. 
+ 
+    *backend*, a ``dns.asyncbackend.Backend``, or ``None``.  If ``None``, 
+    the default, then dnspython will use the default backend. 
+ 
+    See :py:func:`dns.query.quic()` for the documentation of the other 
+    parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if not </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">have_quic</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">NoDOQ</span><span class="s4">(</span><span class="s5">&quot;DNS-over-QUIC is not available.&quot;</span><span class="s4">)  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">if </span><span class="s1">server_hostname </span><span class="s3">is not None and </span><span class="s1">hostname </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s1">hostname </span><span class="s4">= </span><span class="s1">server_hostname</span>
+
+    <span class="s1">q</span><span class="s4">.</span><span class="s1">id </span><span class="s4">= </span><span class="s6">0</span>
+    <span class="s1">wire </span><span class="s4">= </span><span class="s1">q</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+    <span class="s1">the_connection</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">AsyncQuicConnection</span>
+    <span class="s3">if </span><span class="s1">connection</span><span class="s4">:</span>
+        <span class="s1">cfactory </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">null_factory</span>
+        <span class="s1">mfactory </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">null_factory</span>
+        <span class="s1">the_connection </span><span class="s4">= </span><span class="s1">connection</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s4">(</span><span class="s1">cfactory</span><span class="s4">, </span><span class="s1">mfactory</span><span class="s4">) = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">quic</span><span class="s4">.</span><span class="s1">factories_for_backend</span><span class="s4">(</span><span class="s1">backend</span><span class="s4">)</span>
+
+    <span class="s3">async with </span><span class="s1">cfactory</span><span class="s4">() </span><span class="s3">as </span><span class="s1">context</span><span class="s4">:</span>
+        <span class="s3">async with </span><span class="s1">mfactory</span><span class="s4">(</span>
+            <span class="s1">context</span><span class="s4">,</span>
+            <span class="s1">verify_mode</span><span class="s4">=</span><span class="s1">verify</span><span class="s4">,</span>
+            <span class="s1">server_name</span><span class="s4">=</span><span class="s1">server_hostname</span><span class="s4">,</span>
+        <span class="s4">) </span><span class="s3">as </span><span class="s1">the_manager</span><span class="s4">:</span>
+            <span class="s3">if not </span><span class="s1">connection</span><span class="s4">:</span>
+                <span class="s1">the_connection </span><span class="s4">= </span><span class="s1">the_manager</span><span class="s4">.</span><span class="s1">connect</span><span class="s4">(</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">, </span><span class="s1">source</span><span class="s4">, </span><span class="s1">source_port</span><span class="s4">)</span>
+            <span class="s4">(</span><span class="s1">start</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">) = </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s1">stream </span><span class="s4">= </span><span class="s3">await </span><span class="s1">the_connection</span><span class="s4">.</span><span class="s1">make_stream</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s3">async with </span><span class="s1">stream</span><span class="s4">:</span>
+                <span class="s3">await </span><span class="s1">stream</span><span class="s4">.</span><span class="s1">send</span><span class="s4">(</span><span class="s1">wire</span><span class="s4">, </span><span class="s3">True</span><span class="s4">)</span>
+                <span class="s1">wire </span><span class="s4">= </span><span class="s3">await </span><span class="s1">stream</span><span class="s4">.</span><span class="s1">receive</span><span class="s4">(</span><span class="s1">_remaining</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">))</span>
+            <span class="s1">finish </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+        <span class="s1">r </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">from_wire</span><span class="s4">(</span>
+            <span class="s1">wire</span><span class="s4">,</span>
+            <span class="s1">keyring</span><span class="s4">=</span><span class="s1">q</span><span class="s4">.</span><span class="s1">keyring</span><span class="s4">,</span>
+            <span class="s1">request_mac</span><span class="s4">=</span><span class="s1">q</span><span class="s4">.</span><span class="s1">request_mac</span><span class="s4">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s4">=</span><span class="s1">one_rr_per_rrset</span><span class="s4">,</span>
+            <span class="s1">ignore_trailing</span><span class="s4">=</span><span class="s1">ignore_trailing</span><span class="s4">,</span>
+        <span class="s4">)</span>
+    <span class="s1">r</span><span class="s4">.</span><span class="s1">time </span><span class="s4">= </span><span class="s1">max</span><span class="s4">(</span><span class="s1">finish </span><span class="s4">- </span><span class="s1">start</span><span class="s4">, </span><span class="s6">0.0</span><span class="s4">)</span>
+    <span class="s3">if not </span><span class="s1">q</span><span class="s4">.</span><span class="s1">is_response</span><span class="s4">(</span><span class="s1">r</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">BadResponse</span>
+    <span class="s3">return </span><span class="s1">r</span>
+
+
+<span class="s3">async def </span><span class="s1">_inbound_xfr</span><span class="s4">(</span>
+    <span class="s1">txn_manager</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">transaction</span><span class="s4">.</span><span class="s1">TransactionManager</span><span class="s4">,</span>
+    <span class="s1">s</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Socket</span><span class="s4">,</span>
+    <span class="s1">query</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">,</span>
+    <span class="s1">serial</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">],</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">],</span>
+    <span class="s1">expiration</span><span class="s4">: </span><span class="s1">float</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Any</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Given a socket, does the zone transfer.&quot;&quot;&quot;</span>
+    <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">query</span><span class="s4">.</span><span class="s1">question</span><span class="s4">[</span><span class="s6">0</span><span class="s4">].</span><span class="s1">rdtype</span>
+    <span class="s1">is_ixfr </span><span class="s4">= </span><span class="s1">rdtype </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">IXFR</span>
+    <span class="s1">origin </span><span class="s4">= </span><span class="s1">txn_manager</span><span class="s4">.</span><span class="s1">from_wire_origin</span><span class="s4">()</span>
+    <span class="s1">wire </span><span class="s4">= </span><span class="s1">query</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+    <span class="s1">is_udp </span><span class="s4">= </span><span class="s1">s</span><span class="s4">.</span><span class="s1">type </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_DGRAM</span>
+    <span class="s3">if </span><span class="s1">is_udp</span><span class="s4">:</span>
+        <span class="s1">udp_sock </span><span class="s4">= </span><span class="s1">cast</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">DatagramSocket</span><span class="s4">, </span><span class="s1">s</span><span class="s4">)</span>
+        <span class="s3">await </span><span class="s1">udp_sock</span><span class="s4">.</span><span class="s1">sendto</span><span class="s4">(</span><span class="s1">wire</span><span class="s4">, </span><span class="s3">None</span><span class="s4">, </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">))</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">tcp_sock </span><span class="s4">= </span><span class="s1">cast</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">StreamSocket</span><span class="s4">, </span><span class="s1">s</span><span class="s4">)</span>
+        <span class="s1">tcpmsg </span><span class="s4">= </span><span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span><span class="s5">&quot;!H&quot;</span><span class="s4">, </span><span class="s1">len</span><span class="s4">(</span><span class="s1">wire</span><span class="s4">)) + </span><span class="s1">wire</span>
+        <span class="s3">await </span><span class="s1">tcp_sock</span><span class="s4">.</span><span class="s1">sendall</span><span class="s4">(</span><span class="s1">tcpmsg</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">)</span>
+    <span class="s3">with </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">xfr</span><span class="s4">.</span><span class="s1">Inbound</span><span class="s4">(</span><span class="s1">txn_manager</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">serial</span><span class="s4">, </span><span class="s1">is_udp</span><span class="s4">) </span><span class="s3">as </span><span class="s1">inbound</span><span class="s4">:</span>
+        <span class="s1">done </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s1">tsig_ctx </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s3">while not </span><span class="s1">done</span><span class="s4">:</span>
+            <span class="s4">(</span><span class="s1">_</span><span class="s4">, </span><span class="s1">mexpiration</span><span class="s4">) = </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">mexpiration </span><span class="s3">is None or </span><span class="s4">(</span>
+                <span class="s1">expiration </span><span class="s3">is not None and </span><span class="s1">mexpiration </span><span class="s4">&gt; </span><span class="s1">expiration</span>
+            <span class="s4">):</span>
+                <span class="s1">mexpiration </span><span class="s4">= </span><span class="s1">expiration</span>
+            <span class="s3">if </span><span class="s1">is_udp</span><span class="s4">:</span>
+                <span class="s1">timeout </span><span class="s4">= </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">mexpiration</span><span class="s4">)</span>
+                <span class="s4">(</span><span class="s1">rwire</span><span class="s4">, </span><span class="s1">_</span><span class="s4">) = </span><span class="s3">await </span><span class="s1">udp_sock</span><span class="s4">.</span><span class="s1">recvfrom</span><span class="s4">(</span><span class="s6">65535</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">ldata </span><span class="s4">= </span><span class="s3">await </span><span class="s1">_read_exactly</span><span class="s4">(</span><span class="s1">tcp_sock</span><span class="s4">, </span><span class="s6">2</span><span class="s4">, </span><span class="s1">mexpiration</span><span class="s4">)</span>
+                <span class="s4">(</span><span class="s1">l</span><span class="s4">,) = </span><span class="s1">struct</span><span class="s4">.</span><span class="s1">unpack</span><span class="s4">(</span><span class="s5">&quot;!H&quot;</span><span class="s4">, </span><span class="s1">ldata</span><span class="s4">)</span>
+                <span class="s1">rwire </span><span class="s4">= </span><span class="s3">await </span><span class="s1">_read_exactly</span><span class="s4">(</span><span class="s1">tcp_sock</span><span class="s4">, </span><span class="s1">l</span><span class="s4">, </span><span class="s1">mexpiration</span><span class="s4">)</span>
+            <span class="s1">r </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">from_wire</span><span class="s4">(</span>
+                <span class="s1">rwire</span><span class="s4">,</span>
+                <span class="s1">keyring</span><span class="s4">=</span><span class="s1">query</span><span class="s4">.</span><span class="s1">keyring</span><span class="s4">,</span>
+                <span class="s1">request_mac</span><span class="s4">=</span><span class="s1">query</span><span class="s4">.</span><span class="s1">mac</span><span class="s4">,</span>
+                <span class="s1">xfr</span><span class="s4">=</span><span class="s3">True</span><span class="s4">,</span>
+                <span class="s1">origin</span><span class="s4">=</span><span class="s1">origin</span><span class="s4">,</span>
+                <span class="s1">tsig_ctx</span><span class="s4">=</span><span class="s1">tsig_ctx</span><span class="s4">,</span>
+                <span class="s1">multi</span><span class="s4">=(</span><span class="s3">not </span><span class="s1">is_udp</span><span class="s4">),</span>
+                <span class="s1">one_rr_per_rrset</span><span class="s4">=</span><span class="s1">is_ixfr</span><span class="s4">,</span>
+            <span class="s4">)</span>
+            <span class="s1">done </span><span class="s4">= </span><span class="s1">inbound</span><span class="s4">.</span><span class="s1">process_message</span><span class="s4">(</span><span class="s1">r</span><span class="s4">)</span>
+            <span class="s3">yield </span><span class="s1">r</span>
+            <span class="s1">tsig_ctx </span><span class="s4">= </span><span class="s1">r</span><span class="s4">.</span><span class="s1">tsig_ctx</span>
+        <span class="s3">if </span><span class="s1">query</span><span class="s4">.</span><span class="s1">keyring </span><span class="s3">and not </span><span class="s1">r</span><span class="s4">.</span><span class="s1">had_tsig</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">FormError</span><span class="s4">(</span><span class="s5">&quot;missing TSIG&quot;</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">inbound_xfr</span><span class="s4">(</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">txn_manager</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">transaction</span><span class="s4">.</span><span class="s1">TransactionManager</span><span class="s4">,</span>
+    <span class="s1">query</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">53</span><span class="s4">,</span>
+    <span class="s1">timeout</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">lifetime</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s6">0</span><span class="s4">,</span>
+    <span class="s1">udp_mode</span><span class="s4">: </span><span class="s1">UDPMode </span><span class="s4">= </span><span class="s1">UDPMode</span><span class="s4">.</span><span class="s1">NEVER</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Conduct an inbound transfer and apply it via a transaction from the 
+    txn_manager. 
+ 
+    *backend*, a ``dns.asyncbackend.Backend``, or ``None``.  If ``None``, 
+    the default, then dnspython will use the default backend. 
+ 
+    See :py:func:`dns.query.inbound_xfr()` for the documentation of 
+    the other parameters, exceptions, and return type of this method. 
+    &quot;&quot;&quot;</span>
+    <span class="s3">if </span><span class="s1">query </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s4">(</span><span class="s1">query</span><span class="s4">, </span><span class="s1">serial</span><span class="s4">) = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">xfr</span><span class="s4">.</span><span class="s1">make_query</span><span class="s4">(</span><span class="s1">txn_manager</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">serial </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">xfr</span><span class="s4">.</span><span class="s1">extract_serial_from_query</span><span class="s4">(</span><span class="s1">query</span><span class="s4">)</span>
+    <span class="s1">af </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">where</span><span class="s4">)</span>
+    <span class="s1">stuple </span><span class="s4">= </span><span class="s1">_source_tuple</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">source</span><span class="s4">, </span><span class="s1">source_port</span><span class="s4">)</span>
+    <span class="s1">dtuple </span><span class="s4">= (</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">)</span>
+    <span class="s3">if not </span><span class="s1">backend</span><span class="s4">:</span>
+        <span class="s1">backend </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">get_default_backend</span><span class="s4">()</span>
+    <span class="s4">(</span><span class="s1">_</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">) = </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">lifetime</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">query</span><span class="s4">.</span><span class="s1">question</span><span class="s4">[</span><span class="s6">0</span><span class="s4">].</span><span class="s1">rdtype </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">IXFR </span><span class="s3">and </span><span class="s1">udp_mode </span><span class="s4">!= </span><span class="s1">UDPMode</span><span class="s4">.</span><span class="s1">NEVER</span><span class="s4">:</span>
+        <span class="s1">s </span><span class="s4">= </span><span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">make_socket</span><span class="s4">(</span>
+            <span class="s1">af</span><span class="s4">, </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_DGRAM</span><span class="s4">, </span><span class="s6">0</span><span class="s4">, </span><span class="s1">stuple</span><span class="s4">, </span><span class="s1">dtuple</span><span class="s4">, </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">)</span>
+        <span class="s4">)</span>
+        <span class="s3">async with </span><span class="s1">s</span><span class="s4">:</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s3">async for </span><span class="s1">_ </span><span class="s3">in </span><span class="s1">_inbound_xfr</span><span class="s4">(</span>
+                    <span class="s1">txn_manager</span><span class="s4">, </span><span class="s1">s</span><span class="s4">, </span><span class="s1">query</span><span class="s4">, </span><span class="s1">serial</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">, </span><span class="s1">expiration</span>
+                <span class="s4">):</span>
+                    <span class="s3">pass</span>
+                <span class="s3">return</span>
+            <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">xfr</span><span class="s4">.</span><span class="s1">UseTCP</span><span class="s4">:</span>
+                <span class="s3">if </span><span class="s1">udp_mode </span><span class="s4">== </span><span class="s1">UDPMode</span><span class="s4">.</span><span class="s1">ONLY</span><span class="s4">:</span>
+                    <span class="s3">raise</span>
+
+    <span class="s1">s </span><span class="s4">= </span><span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">make_socket</span><span class="s4">(</span>
+        <span class="s1">af</span><span class="s4">, </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_STREAM</span><span class="s4">, </span><span class="s6">0</span><span class="s4">, </span><span class="s1">stuple</span><span class="s4">, </span><span class="s1">dtuple</span><span class="s4">, </span><span class="s1">_timeout</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">)</span>
+    <span class="s4">)</span>
+    <span class="s3">async with </span><span class="s1">s</span><span class="s4">:</span>
+        <span class="s3">async for </span><span class="s1">_ </span><span class="s3">in </span><span class="s1">_inbound_xfr</span><span class="s4">(</span><span class="s1">txn_manager</span><span class="s4">, </span><span class="s1">s</span><span class="s4">, </span><span class="s1">query</span><span class="s4">, </span><span class="s1">serial</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">):</span>
+            <span class="s3">pass</span>
+</pre>
+</body>
+</html>

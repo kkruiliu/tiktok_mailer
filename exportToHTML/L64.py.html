@@ -1,0 +1,71 @@
+<html>
+<head>
+<title>L64.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #5f826b; font-style: italic;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+L64.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">import </span><span class="s1">struct</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">util</span>
+
+
+<span class="s3">@</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">class </span><span class="s1">L64</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">Rdata</span><span class="s3">):</span>
+    <span class="s4">&quot;&quot;&quot;L64 record&quot;&quot;&quot;</span>
+
+    <span class="s0"># see: rfc6742.txt</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= [</span><span class="s5">&quot;preference&quot;</span><span class="s3">, </span><span class="s5">&quot;locator64&quot;</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">preference</span><span class="s3">, </span><span class="s1">locator64</span><span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">preference </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_uint16</span><span class="s3">(</span><span class="s1">preference</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">locator64</span><span class="s3">, </span><span class="s1">bytes</span><span class="s3">):</span>
+            <span class="s2">if </span><span class="s1">len</span><span class="s3">(</span><span class="s1">locator64</span><span class="s3">) != </span><span class="s6">8</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;invalid locator64&quot;</span><span class="s3">)</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">locator64 </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">_hexify</span><span class="s3">(</span><span class="s1">locator64</span><span class="s3">, </span><span class="s6">4</span><span class="s3">, </span><span class="s7">b&quot;:&quot;</span><span class="s3">)</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">util</span><span class="s3">.</span><span class="s1">parse_formatted_hex</span><span class="s3">(</span><span class="s1">locator64</span><span class="s3">, </span><span class="s6">4</span><span class="s3">, </span><span class="s6">4</span><span class="s3">, </span><span class="s5">&quot;:&quot;</span><span class="s3">)</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">locator64 </span><span class="s3">= </span><span class="s1">locator64</span>
+
+    <span class="s2">def </span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s5">f&quot;</span><span class="s2">{</span><span class="s1">self</span><span class="s3">.</span><span class="s1">preference</span><span class="s2">} {</span><span class="s1">self</span><span class="s3">.</span><span class="s1">locator64</span><span class="s2">}</span><span class="s5">&quot;</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_text</span><span class="s3">(</span>
+        <span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">tok</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, </span><span class="s1">relativize_to</span><span class="s3">=</span><span class="s2">None</span>
+    <span class="s3">):</span>
+        <span class="s1">preference </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint16</span><span class="s3">()</span>
+        <span class="s1">locator64 </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_identifier</span><span class="s3">()</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">preference</span><span class="s3">, </span><span class="s1">locator64</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_to_wire</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">file</span><span class="s3">, </span><span class="s1">compress</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">canonicalize</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span><span class="s5">&quot;!H&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">preference</span><span class="s3">))</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">util</span><span class="s3">.</span><span class="s1">parse_formatted_hex</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">locator64</span><span class="s3">, </span><span class="s6">4</span><span class="s3">, </span><span class="s6">4</span><span class="s3">, </span><span class="s5">&quot;:&quot;</span><span class="s3">))</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_wire_parser</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">parser</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s1">preference </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_uint16</span><span class="s3">()</span>
+        <span class="s1">locator64 </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_remaining</span><span class="s3">()</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">preference</span><span class="s3">, </span><span class="s1">locator64</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

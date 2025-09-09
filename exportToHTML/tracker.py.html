@@ -1,0 +1,117 @@
+<html>
+<head>
+<title>tracker.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #7a7e85;}
+.s4 { color: #6aab73;}
+.s5 { color: #a5c261;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+tracker.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">flask </span><span class="s0">import </span><span class="s1">Flask</span><span class="s2">, </span><span class="s1">request</span><span class="s2">, </span><span class="s1">jsonify</span><span class="s2">, </span><span class="s1">send_file</span><span class="s2">, </span><span class="s1">send_from_directory</span>
+<span class="s0">from </span><span class="s1">flask_cors </span><span class="s0">import </span><span class="s1">CORS</span>
+<span class="s0">from </span><span class="s1">datetime </span><span class="s0">import </span><span class="s1">datetime</span>
+<span class="s0">from </span><span class="s1">io </span><span class="s0">import </span><span class="s1">BytesIO</span>
+<span class="s0">import </span><span class="s1">os</span>
+
+<span class="s0">from </span><span class="s1">database </span><span class="s0">import </span><span class="s1">mark_email_opened</span><span class="s2">, </span><span class="s1">unsubscribe_user</span>
+<span class="s0">from </span><span class="s1">send_email </span><span class="s0">import </span><span class="s1">send_email</span>
+
+<span class="s1">app </span><span class="s2">= </span><span class="s1">Flask</span><span class="s2">(</span><span class="s1">__name__</span><span class="s2">)</span>
+<span class="s1">CORS</span><span class="s2">(</span><span class="s1">app</span><span class="s2">)  </span><span class="s3"># Enable CORS for all domains</span>
+
+
+<span class="s2">@</span><span class="s1">app</span><span class="s2">.</span><span class="s1">route</span><span class="s2">(</span><span class="s4">'/open/&lt;message_id&gt;'</span><span class="s2">)</span>
+<span class="s0">def </span><span class="s1">track_open</span><span class="s2">(</span><span class="s1">message_id</span><span class="s2">):</span>
+    <span class="s1">print</span><span class="s2">(</span><span class="s4">f&quot;Tracking open for message_id: </span><span class="s0">{</span><span class="s1">message_id</span><span class="s0">}</span><span class="s4">&quot;</span><span class="s2">)</span>
+    <span class="s1">mark_email_opened</span><span class="s2">(</span><span class="s1">message_id</span><span class="s2">)</span>
+
+    <span class="s3"># Return a 1x1 transparent GIF</span>
+    <span class="s1">pixel </span><span class="s2">= </span><span class="s1">BytesIO</span><span class="s2">(</span>
+        <span class="s5">b'</span><span class="s0">\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xFF\xFF\xFF</span><span class="s5">'</span>
+        <span class="s5">b'</span><span class="s0">\x21\xF9\x04\x01\x00\x00\x00\x00\x2C\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02</span><span class="s5">'</span>
+        <span class="s5">b'</span><span class="s0">\x02\x4C\x01\x00\x3B</span><span class="s5">'</span>
+    <span class="s2">)</span>
+    <span class="s0">return </span><span class="s1">send_file</span><span class="s2">(</span><span class="s1">pixel</span><span class="s2">, </span><span class="s1">mimetype</span><span class="s2">=</span><span class="s4">'image/gif'</span><span class="s2">)</span>
+
+<span class="s3"># --- 2. Unsubscribe ---</span>
+<span class="s2">@</span><span class="s1">app</span><span class="s2">.</span><span class="s1">route</span><span class="s2">(</span><span class="s4">'/unsubscribe'</span><span class="s2">)</span>
+<span class="s0">def </span><span class="s1">unsubscribe</span><span class="s2">():</span>
+    <span class="s1">email </span><span class="s2">= </span><span class="s1">request</span><span class="s2">.</span><span class="s1">args</span><span class="s2">.</span><span class="s1">get</span><span class="s2">(</span><span class="s4">'email'</span><span class="s2">)</span>
+    <span class="s0">if </span><span class="s1">email</span><span class="s2">:</span>
+        <span class="s1">unsubscribe_user</span><span class="s2">(</span><span class="s1">email</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s4">f&quot;&lt;h3&gt;</span><span class="s0">{</span><span class="s1">email</span><span class="s0">} </span><span class="s4">has been unsubscribed.&lt;/h3&gt;&quot;</span>
+    <span class="s0">else</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s4">&quot;&lt;h3&gt;Error: missing email parameter.&lt;/h3&gt;&quot;</span><span class="s2">, </span><span class="s6">400</span>
+
+<span class="s3"># --- 3. Send email from HTML content ---</span>
+<span class="s2">@</span><span class="s1">app</span><span class="s2">.</span><span class="s1">route</span><span class="s2">(</span><span class="s4">'/send-html'</span><span class="s2">, </span><span class="s1">methods</span><span class="s2">=[</span><span class="s4">'POST'</span><span class="s2">])</span>
+<span class="s0">def </span><span class="s1">send_html</span><span class="s2">():</span>
+    <span class="s1">data </span><span class="s2">= </span><span class="s1">request</span><span class="s2">.</span><span class="s1">json</span>
+    <span class="s1">html </span><span class="s2">= </span><span class="s1">data</span><span class="s2">.</span><span class="s1">get</span><span class="s2">(</span><span class="s4">'html'</span><span class="s2">)</span>
+    <span class="s1">to_email </span><span class="s2">= </span><span class="s1">data</span><span class="s2">.</span><span class="s1">get</span><span class="s2">(</span><span class="s4">'to'</span><span class="s2">)</span>
+    <span class="s1">subject </span><span class="s2">= </span><span class="s1">data</span><span class="s2">.</span><span class="s1">get</span><span class="s2">(</span><span class="s4">'subject'</span><span class="s2">, </span><span class="s4">'Untitled Campaign'</span><span class="s2">)</span>
+
+    <span class="s0">if not </span><span class="s1">html </span><span class="s0">or not </span><span class="s1">to_email</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">jsonify</span><span class="s2">({</span><span class="s4">&quot;error&quot;</span><span class="s2">: </span><span class="s4">&quot;Missing required fields&quot;</span><span class="s2">}), </span><span class="s6">400</span>
+
+    <span class="s0">try</span><span class="s2">:</span>
+        <span class="s1">send_email</span><span class="s2">(</span>
+            <span class="s1">recipient</span><span class="s2">=</span><span class="s1">to_email</span><span class="s2">,</span>
+            <span class="s1">subject</span><span class="s2">=</span><span class="s1">subject</span><span class="s2">,</span>
+            <span class="s1">html_body</span><span class="s2">=</span><span class="s1">html</span><span class="s2">,</span>
+            <span class="s1">mailbox_name</span><span class="s2">=</span><span class="s4">'campaignA'  </span><span class="s3"># use dynamic if needed</span>
+        <span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">jsonify</span><span class="s2">({</span><span class="s4">&quot;status&quot;</span><span class="s2">: </span><span class="s4">&quot;sent&quot;</span><span class="s2">})</span>
+    <span class="s0">except </span><span class="s1">Exception </span><span class="s0">as </span><span class="s1">e</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">jsonify</span><span class="s2">({</span><span class="s4">&quot;error&quot;</span><span class="s2">: </span><span class="s1">str</span><span class="s2">(</span><span class="s1">e</span><span class="s2">)}), </span><span class="s6">500</span>
+
+<span class="s3"># --- 4. Serve React frontend ---</span>
+<span class="s2">@</span><span class="s1">app</span><span class="s2">.</span><span class="s1">route</span><span class="s2">(</span><span class="s4">'/'</span><span class="s2">)</span>
+<span class="s0">def </span><span class="s1">serve_index</span><span class="s2">():</span>
+    <span class="s0">return </span><span class="s1">send_from_directory</span><span class="s2">(</span><span class="s4">'static'</span><span class="s2">, </span><span class="s4">'index.html'</span><span class="s2">)</span>
+
+<span class="s2">@</span><span class="s1">app</span><span class="s2">.</span><span class="s1">route</span><span class="s2">(</span><span class="s4">'/&lt;path:path&gt;'</span><span class="s2">)</span>
+<span class="s0">def </span><span class="s1">serve_static</span><span class="s2">(</span><span class="s1">path</span><span class="s2">):</span>
+    <span class="s0">return </span><span class="s1">send_from_directory</span><span class="s2">(</span><span class="s4">'static'</span><span class="s2">, </span><span class="s1">path</span><span class="s2">)</span>
+
+<span class="s3"># --- 5. Optional: Shut down Flask after idle timeout (5 mins) ---</span>
+<span class="s0">import </span><span class="s1">threading</span>
+<span class="s0">import </span><span class="s1">time</span>
+
+<span class="s0">def </span><span class="s1">idle_killer</span><span class="s2">(</span><span class="s1">timeout</span><span class="s2">=</span><span class="s6">300</span><span class="s2">):</span>
+    <span class="s1">last_request_time </span><span class="s2">= </span><span class="s1">time</span><span class="s2">.</span><span class="s1">time</span><span class="s2">()</span>
+
+    <span class="s0">def </span><span class="s1">update_timer</span><span class="s2">():</span>
+        <span class="s0">nonlocal </span><span class="s1">last_request_time</span>
+        <span class="s1">last_request_time </span><span class="s2">= </span><span class="s1">time</span><span class="s2">.</span><span class="s1">time</span><span class="s2">()</span>
+
+    <span class="s0">def </span><span class="s1">monitor</span><span class="s2">():</span>
+        <span class="s0">while True</span><span class="s2">:</span>
+            <span class="s0">if </span><span class="s1">time</span><span class="s2">.</span><span class="s1">time</span><span class="s2">() - </span><span class="s1">last_request_time </span><span class="s2">&gt; </span><span class="s1">timeout</span><span class="s2">:</span>
+                <span class="s1">print</span><span class="s2">(</span><span class="s4">&quot;💀 Server idle. Shutting down...&quot;</span><span class="s2">)</span>
+                <span class="s1">os</span><span class="s2">.</span><span class="s1">_exit</span><span class="s2">(</span><span class="s6">0</span><span class="s2">)</span>
+            <span class="s1">time</span><span class="s2">.</span><span class="s1">sleep</span><span class="s2">(</span><span class="s6">10</span><span class="s2">)</span>
+
+    <span class="s1">app</span><span class="s2">.</span><span class="s1">before_request</span><span class="s2">(</span><span class="s1">update_timer</span><span class="s2">)</span>
+    <span class="s1">threading</span><span class="s2">.</span><span class="s1">Thread</span><span class="s2">(</span><span class="s1">target</span><span class="s2">=</span><span class="s1">monitor</span><span class="s2">, </span><span class="s1">daemon</span><span class="s2">=</span><span class="s0">True</span><span class="s2">).</span><span class="s1">start</span><span class="s2">()</span>
+
+<span class="s1">idle_killer</span><span class="s2">(</span><span class="s1">timeout</span><span class="s2">=</span><span class="s6">300</span><span class="s2">)</span>
+
+<span class="s3"># --- 6. Start server ---</span>
+<span class="s0">if </span><span class="s1">__name__ </span><span class="s2">== </span><span class="s4">'__main__'</span><span class="s2">:</span>
+    <span class="s1">port </span><span class="s2">= </span><span class="s1">int</span><span class="s2">(</span><span class="s1">os</span><span class="s2">.</span><span class="s1">environ</span><span class="s2">.</span><span class="s1">get</span><span class="s2">(</span><span class="s4">&quot;PORT&quot;</span><span class="s2">, </span><span class="s6">5000</span><span class="s2">))</span>
+    <span class="s1">app</span><span class="s2">.</span><span class="s1">run</span><span class="s2">(</span><span class="s1">host</span><span class="s2">=</span><span class="s4">'0.0.0.0'</span><span class="s2">, </span><span class="s1">port</span><span class="s2">=</span><span class="s1">port</span><span class="s2">)</span>
+</pre>
+</body>
+</html>

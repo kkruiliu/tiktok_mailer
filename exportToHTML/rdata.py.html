@@ -1,0 +1,935 @@
+<html>
+<head>
+<title>rdata.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+.s6 { color: #a5c261;}
+.s7 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+rdata.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2001-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;DNS rdata.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">base64</span>
+<span class="s3">import </span><span class="s1">binascii</span>
+<span class="s3">import </span><span class="s1">inspect</span>
+<span class="s3">import </span><span class="s1">io</span>
+<span class="s3">import </span><span class="s1">itertools</span>
+<span class="s3">import </span><span class="s1">random</span>
+<span class="s3">from </span><span class="s1">importlib </span><span class="s3">import </span><span class="s1">import_module</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Any</span><span class="s4">, </span><span class="s1">Dict</span><span class="s4">, </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Tuple</span><span class="s4">, </span><span class="s1">Union</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span>
+
+<span class="s1">_chunksize </span><span class="s4">= </span><span class="s5">32</span>
+
+<span class="s0"># We currently allow comparisons for rdata with relative names for backwards</span>
+<span class="s0"># compatibility, but in the future we will not, as these kinds of comparisons</span>
+<span class="s0"># can lead to subtle bugs if code is not carefully written.</span>
+<span class="s0">#</span>
+<span class="s0"># This switch allows the future behavior to be turned on so code can be</span>
+<span class="s0"># tested with it.</span>
+<span class="s1">_allow_relative_comparisons </span><span class="s4">= </span><span class="s3">True</span>
+
+
+<span class="s3">class </span><span class="s1">NoRelativeRdataOrdering</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;An attempt was made to do an ordered comparison of one or more 
+    rdata with relative names.  The only reliable way of sorting rdata 
+    is to use non-relativized rdata. 
+ 
+    &quot;&quot;&quot;</span>
+
+
+<span class="s3">def </span><span class="s1">_wordbreak</span><span class="s4">(</span><span class="s1">data</span><span class="s4">, </span><span class="s1">chunksize</span><span class="s4">=</span><span class="s1">_chunksize</span><span class="s4">, </span><span class="s1">separator</span><span class="s4">=</span><span class="s6">b&quot; &quot;</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Break a binary string into chunks of chunksize characters separated by 
+    a space. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if not </span><span class="s1">chunksize</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">data</span><span class="s4">.</span><span class="s1">decode</span><span class="s4">()</span>
+    <span class="s3">return </span><span class="s1">separator</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span>
+        <span class="s4">[</span><span class="s1">data</span><span class="s4">[</span><span class="s1">i </span><span class="s4">: </span><span class="s1">i </span><span class="s4">+ </span><span class="s1">chunksize</span><span class="s4">] </span><span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">range</span><span class="s4">(</span><span class="s5">0</span><span class="s4">, </span><span class="s1">len</span><span class="s4">(</span><span class="s1">data</span><span class="s4">), </span><span class="s1">chunksize</span><span class="s4">)]</span>
+    <span class="s4">).</span><span class="s1">decode</span><span class="s4">()</span>
+
+
+<span class="s0"># pylint: disable=unused-argument</span>
+
+
+<span class="s3">def </span><span class="s1">_hexify</span><span class="s4">(</span><span class="s1">data</span><span class="s4">, </span><span class="s1">chunksize</span><span class="s4">=</span><span class="s1">_chunksize</span><span class="s4">, </span><span class="s1">separator</span><span class="s4">=</span><span class="s6">b&quot; &quot;</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Convert a binary string into its hex encoding, broken up into chunks 
+    of chunksize characters separated by a separator. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">_wordbreak</span><span class="s4">(</span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">hexlify</span><span class="s4">(</span><span class="s1">data</span><span class="s4">), </span><span class="s1">chunksize</span><span class="s4">, </span><span class="s1">separator</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">_base64ify</span><span class="s4">(</span><span class="s1">data</span><span class="s4">, </span><span class="s1">chunksize</span><span class="s4">=</span><span class="s1">_chunksize</span><span class="s4">, </span><span class="s1">separator</span><span class="s4">=</span><span class="s6">b&quot; &quot;</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Convert a binary string into its base64 encoding, broken up into chunks 
+    of chunksize characters separated by a separator. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">_wordbreak</span><span class="s4">(</span><span class="s1">base64</span><span class="s4">.</span><span class="s1">b64encode</span><span class="s4">(</span><span class="s1">data</span><span class="s4">), </span><span class="s1">chunksize</span><span class="s4">, </span><span class="s1">separator</span><span class="s4">)</span>
+
+
+<span class="s0"># pylint: enable=unused-argument</span>
+
+<span class="s1">__escaped </span><span class="s4">= </span><span class="s6">b'&quot;</span><span class="s3">\\</span><span class="s6">'</span>
+
+
+<span class="s3">def </span><span class="s1">_escapify</span><span class="s4">(</span><span class="s1">qstring</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Escape the characters in a quoted string which need it.&quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">qstring</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+        <span class="s1">qstring </span><span class="s4">= </span><span class="s1">qstring</span><span class="s4">.</span><span class="s1">encode</span><span class="s4">()</span>
+    <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">qstring</span><span class="s4">, </span><span class="s1">bytearray</span><span class="s4">):</span>
+        <span class="s1">qstring </span><span class="s4">= </span><span class="s1">bytearray</span><span class="s4">(</span><span class="s1">qstring</span><span class="s4">)</span>
+
+    <span class="s1">text </span><span class="s4">= </span><span class="s7">&quot;&quot;</span>
+    <span class="s3">for </span><span class="s1">c </span><span class="s3">in </span><span class="s1">qstring</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">c </span><span class="s3">in </span><span class="s1">__escaped</span><span class="s4">:</span>
+            <span class="s1">text </span><span class="s4">+= </span><span class="s7">&quot;</span><span class="s3">\\</span><span class="s7">&quot; </span><span class="s4">+ </span><span class="s1">chr</span><span class="s4">(</span><span class="s1">c</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">c </span><span class="s4">&gt;= </span><span class="s5">0x20 </span><span class="s3">and </span><span class="s1">c </span><span class="s4">&lt; </span><span class="s5">0x7F</span><span class="s4">:</span>
+            <span class="s1">text </span><span class="s4">+= </span><span class="s1">chr</span><span class="s4">(</span><span class="s1">c</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">text </span><span class="s4">+= </span><span class="s7">&quot;</span><span class="s3">\\</span><span class="s7">%03d&quot; </span><span class="s4">% </span><span class="s1">c</span>
+    <span class="s3">return </span><span class="s1">text</span>
+
+
+<span class="s3">def </span><span class="s1">_truncate_bitmap</span><span class="s4">(</span><span class="s1">what</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Determine the index of greatest byte that isn't all zeros, and 
+    return the bitmap that contains all the bytes less than that index. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">range</span><span class="s4">(</span><span class="s1">len</span><span class="s4">(</span><span class="s1">what</span><span class="s4">) - </span><span class="s5">1</span><span class="s4">, -</span><span class="s5">1</span><span class="s4">, -</span><span class="s5">1</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">what</span><span class="s4">[</span><span class="s1">i</span><span class="s4">] != </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">what</span><span class="s4">[</span><span class="s5">0 </span><span class="s4">: </span><span class="s1">i </span><span class="s4">+ </span><span class="s5">1</span><span class="s4">]</span>
+    <span class="s3">return </span><span class="s1">what</span><span class="s4">[</span><span class="s5">0</span><span class="s4">:</span><span class="s5">1</span><span class="s4">]</span>
+
+
+<span class="s0"># So we don't have to edit all the rdata classes...</span>
+<span class="s1">_constify </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span><span class="s4">.</span><span class="s1">constify</span>
+
+
+<span class="s4">@</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">class </span><span class="s1">Rdata</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Base class for all DNS rdata types.&quot;&quot;&quot;</span>
+
+    <span class="s1">__slots__ </span><span class="s4">= [</span><span class="s7">&quot;rdclass&quot;</span><span class="s4">, </span><span class="s7">&quot;rdtype&quot;</span><span class="s4">, </span><span class="s7">&quot;rdcomment&quot;</span><span class="s4">]</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Initialize an rdata. 
+ 
+        *rdclass*, an ``int`` is the rdataclass of the Rdata. 
+ 
+        *rdtype*, an ``int`` is the rdatatype of the Rdata. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_as_rdataclass</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_as_rdatatype</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdcomment </span><span class="s4">= </span><span class="s3">None</span>
+
+    <span class="s3">def </span><span class="s1">_get_all_slots</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">itertools</span><span class="s4">.</span><span class="s1">chain</span><span class="s4">.</span><span class="s1">from_iterable</span><span class="s4">(</span>
+            <span class="s1">getattr</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s7">&quot;__slots__&quot;</span><span class="s4">, []) </span><span class="s3">for </span><span class="s1">cls </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">__class__</span><span class="s4">.</span><span class="s1">__mro__</span>
+        <span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">__getstate__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s0"># We used to try to do a tuple of all slots here, but it</span>
+        <span class="s0"># doesn't work as self._all_slots isn't available at</span>
+        <span class="s0"># __setstate__() time.  Before that we tried to store a tuple</span>
+        <span class="s0"># of __slots__, but that didn't work as it didn't store the</span>
+        <span class="s0"># slots defined by ancestors.  This older way didn't fail</span>
+        <span class="s0"># outright, but ended up with partially broken objects, e.g.</span>
+        <span class="s0"># if you unpickled an A RR it wouldn't have rdclass and rdtype</span>
+        <span class="s0"># attributes, and would compare badly.</span>
+        <span class="s1">state </span><span class="s4">= {}</span>
+        <span class="s3">for </span><span class="s1">slot </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_get_all_slots</span><span class="s4">():</span>
+            <span class="s1">state</span><span class="s4">[</span><span class="s1">slot</span><span class="s4">] = </span><span class="s1">getattr</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">slot</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">state</span>
+
+    <span class="s3">def </span><span class="s1">__setstate__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">state</span><span class="s4">):</span>
+        <span class="s3">for </span><span class="s1">slot</span><span class="s4">, </span><span class="s1">val </span><span class="s3">in </span><span class="s1">state</span><span class="s4">.</span><span class="s1">items</span><span class="s4">():</span>
+            <span class="s1">object</span><span class="s4">.</span><span class="s1">__setattr__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">slot</span><span class="s4">, </span><span class="s1">val</span><span class="s4">)</span>
+        <span class="s3">if not </span><span class="s1">hasattr</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s7">&quot;rdcomment&quot;</span><span class="s4">):</span>
+            <span class="s0"># Pickled rdata from 2.0.x might not have a rdcomment, so add</span>
+            <span class="s0"># it if needed.</span>
+            <span class="s1">object</span><span class="s4">.</span><span class="s1">__setattr__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s7">&quot;rdcomment&quot;</span><span class="s4">, </span><span class="s3">None</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">covers</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Return the type a Rdata covers. 
+ 
+        DNS SIG/RRSIG rdatas apply to a specific type; this type is 
+        returned by the covers() function.  If the rdata type is not 
+        SIG or RRSIG, dns.rdatatype.NONE is returned.  This is useful when 
+        creating rdatasets, allowing the rdataset to contain only RRSIGs 
+        of a particular type, e.g. RRSIG(NS). 
+ 
+        Returns a ``dns.rdatatype.RdataType``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span>
+
+    <span class="s3">def </span><span class="s1">extended_rdatatype</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; int</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Return a 32-bit type value, the least significant 16 bits of 
+        which are the ordinary DNS type, and the upper 16 bits of which are 
+        the &quot;covered&quot; type, if any. 
+ 
+        Returns an ``int``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">covers</span><span class="s4">() &lt;&lt; </span><span class="s5">16 </span><span class="s4">| </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">relativize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+        <span class="s4">**</span><span class="s1">kw</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">Any</span><span class="s4">],</span>
+    <span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Convert an rdata to text format. 
+ 
+        Returns a ``str``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">def </span><span class="s1">_to_wire</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">file</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">],</span>
+        <span class="s1">compress</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">CompressType</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">canonicalize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">file</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">compress</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">CompressType</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">canonicalize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s2">&quot;&quot;&quot;Convert an rdata to wire format. 
+ 
+        Returns a ``bytes`` if no output file was specified, or ``None`` otherwise. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">if </span><span class="s1">file</span><span class="s4">:</span>
+            <span class="s0"># We call _to_wire() and then return None explicitly instead of</span>
+            <span class="s0"># of just returning the None from _to_wire() as mypy's func-returns-value</span>
+            <span class="s0"># unhelpfully errors out with &quot;error: &quot;_to_wire&quot; of &quot;Rdata&quot; does not return</span>
+            <span class="s0"># a value (it only ever returns None)&quot;</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_to_wire</span><span class="s4">(</span><span class="s1">file</span><span class="s4">, </span><span class="s1">compress</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">, </span><span class="s1">canonicalize</span><span class="s4">)</span>
+            <span class="s3">return None</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">f </span><span class="s4">= </span><span class="s1">io</span><span class="s4">.</span><span class="s1">BytesIO</span><span class="s4">()</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_to_wire</span><span class="s4">(</span><span class="s1">f</span><span class="s4">, </span><span class="s1">compress</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">, </span><span class="s1">canonicalize</span><span class="s4">)</span>
+            <span class="s3">return </span><span class="s1">f</span><span class="s4">.</span><span class="s1">getvalue</span><span class="s4">()</span>
+
+    <span class="s3">def </span><span class="s1">to_generic</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s7">&quot;dns.rdata.GenericRdata&quot;</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Creates a dns.rdata.GenericRdata equivalent of this rdata. 
+ 
+        Returns a ``dns.rdata.GenericRdata``. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">GenericRdata</span><span class="s4">(</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">=</span><span class="s1">origin</span><span class="s4">)</span>
+        <span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">to_digestable</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; bytes</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Convert rdata to a format suitable for digesting in hashes.  This 
+        is also the DNSSEC canonical form. 
+ 
+        Returns a ``bytes``. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">wire </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">=</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">canonicalize</span><span class="s4">=</span><span class="s3">True</span><span class="s4">)</span>
+        <span class="s3">assert </span><span class="s1">wire </span><span class="s3">is not None  </span><span class="s0"># for mypy</span>
+        <span class="s3">return </span><span class="s1">wire</span>
+
+    <span class="s3">def </span><span class="s1">__repr__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s1">covers </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">covers</span><span class="s4">()</span>
+        <span class="s3">if </span><span class="s1">covers </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">:</span>
+            <span class="s1">ctext </span><span class="s4">= </span><span class="s7">&quot;&quot;</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">ctext </span><span class="s4">= </span><span class="s7">&quot;(&quot; </span><span class="s4">+ </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">covers</span><span class="s4">) + </span><span class="s7">&quot;)&quot;</span>
+        <span class="s3">return </span><span class="s4">(</span>
+            <span class="s7">&quot;&lt;DNS &quot;</span>
+            <span class="s4">+ </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass</span><span class="s4">)</span>
+            <span class="s4">+ </span><span class="s7">&quot; &quot;</span>
+            <span class="s4">+ </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">)</span>
+            <span class="s4">+ </span><span class="s1">ctext</span>
+            <span class="s4">+ </span><span class="s7">&quot; rdata: &quot;</span>
+            <span class="s4">+ </span><span class="s1">str</span><span class="s4">(</span><span class="s1">self</span><span class="s4">)</span>
+            <span class="s4">+ </span><span class="s7">&quot;&gt;&quot;</span>
+        <span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">__str__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">()</span>
+
+    <span class="s3">def </span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Compare an rdata with another rdata of the same rdtype and 
+        rdclass. 
+ 
+        For rdata with only absolute names: 
+            Return &lt; 0 if self &lt; other in the DNSSEC ordering, 0 if self 
+            == other, and &gt; 0 if self &gt; other. 
+        For rdata with at least one relative names: 
+            The rdata sorts before any rdata with only absolute names. 
+            When compared with another relative rdata, all names are 
+            made absolute as if they were relative to the root, as the 
+            proper origin is not available.  While this creates a stable 
+            ordering, it is NOT guaranteed to be the DNSSEC ordering. 
+            In the future, all ordering comparisons for rdata with 
+            relative names will be disallowed. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">our </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">()</span>
+            <span class="s1">our_relative </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">NeedAbsoluteNameOrOrigin</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">_allow_relative_comparisons</span><span class="s4">:</span>
+                <span class="s1">our </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">)</span>
+            <span class="s1">our_relative </span><span class="s4">= </span><span class="s3">True</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">their </span><span class="s4">= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">()</span>
+            <span class="s1">their_relative </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">NeedAbsoluteNameOrOrigin</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">_allow_relative_comparisons</span><span class="s4">:</span>
+                <span class="s1">their </span><span class="s4">= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">)</span>
+            <span class="s1">their_relative </span><span class="s4">= </span><span class="s3">True</span>
+        <span class="s3">if </span><span class="s1">_allow_relative_comparisons</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">our_relative </span><span class="s4">!= </span><span class="s1">their_relative</span><span class="s4">:</span>
+                <span class="s0"># For the purpose of comparison, all rdata with at least one</span>
+                <span class="s0"># relative name is less than an rdata with only absolute names.</span>
+                <span class="s3">if </span><span class="s1">our_relative</span><span class="s4">:</span>
+                    <span class="s3">return </span><span class="s4">-</span><span class="s5">1</span>
+                <span class="s3">else</span><span class="s4">:</span>
+                    <span class="s3">return </span><span class="s5">1</span>
+        <span class="s3">elif </span><span class="s1">our_relative </span><span class="s3">or </span><span class="s1">their_relative</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">NoRelativeRdataOrdering</span>
+        <span class="s3">if </span><span class="s1">our </span><span class="s4">== </span><span class="s1">their</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s5">0</span>
+        <span class="s3">elif </span><span class="s1">our </span><span class="s4">&gt; </span><span class="s1">their</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s5">1</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s4">-</span><span class="s5">1</span>
+
+    <span class="s3">def </span><span class="s1">__eq__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Rdata</span><span class="s4">):</span>
+            <span class="s3">return False</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">:</span>
+            <span class="s3">return False</span>
+        <span class="s1">our_relative </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s1">their_relative </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">our </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">()</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">NeedAbsoluteNameOrOrigin</span><span class="s4">:</span>
+            <span class="s1">our </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">)</span>
+            <span class="s1">our_relative </span><span class="s4">= </span><span class="s3">True</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">their </span><span class="s4">= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">()</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">NeedAbsoluteNameOrOrigin</span><span class="s4">:</span>
+            <span class="s1">their </span><span class="s4">= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">)</span>
+            <span class="s1">their_relative </span><span class="s4">= </span><span class="s3">True</span>
+        <span class="s3">if </span><span class="s1">our_relative </span><span class="s4">!= </span><span class="s1">their_relative</span><span class="s4">:</span>
+            <span class="s3">return False</span>
+        <span class="s3">return </span><span class="s1">our </span><span class="s4">== </span><span class="s1">their</span>
+
+    <span class="s3">def </span><span class="s1">__ne__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Rdata</span><span class="s4">):</span>
+            <span class="s3">return True</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">:</span>
+            <span class="s3">return True</span>
+        <span class="s3">return not </span><span class="s1">self</span><span class="s4">.</span><span class="s1">__eq__</span><span class="s4">(</span><span class="s1">other</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">__lt__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s4">(</span>
+            <span class="s3">not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Rdata</span><span class="s4">)</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdclass</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdtype</span>
+        <span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &lt; </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__le__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s4">(</span>
+            <span class="s3">not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Rdata</span><span class="s4">)</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdclass</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdtype</span>
+        <span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &lt;= </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__ge__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s4">(</span>
+            <span class="s3">not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Rdata</span><span class="s4">)</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdclass</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdtype</span>
+        <span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &gt;= </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__gt__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s4">(</span>
+            <span class="s3">not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Rdata</span><span class="s4">)</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdclass</span>
+            <span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdtype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdtype</span>
+        <span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &gt; </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__hash__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">hash</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_digestable</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">))</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_text</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">tok</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span><span class="s4">.</span><span class="s1">Tokenizer</span><span class="s4">,</span>
+        <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">relativize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+        <span class="s1">relativize_to</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s7">&quot;Rdata&quot;</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">parser</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span><span class="s4">.</span><span class="s1">Parser</span><span class="s4">,</span>
+        <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s7">&quot;Rdata&quot;</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">def </span><span class="s1">replace</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s7">&quot;Rdata&quot;</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot; 
+        Create a new Rdata instance based on the instance replace was 
+        invoked on. It is possible to pass different parameters to 
+        override the corresponding properties of the base Rdata. 
+ 
+        Any field specific to the Rdata type can be replaced, but the 
+        *rdtype* and *rdclass* fields cannot. 
+ 
+        Returns an instance of the same Rdata subclass as *self*. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s0"># Get the constructor parameters.</span>
+        <span class="s1">parameters </span><span class="s4">= </span><span class="s1">inspect</span><span class="s4">.</span><span class="s1">signature</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">__init__</span><span class="s4">).</span><span class="s1">parameters  </span><span class="s0"># type: ignore</span>
+
+        <span class="s0"># Ensure that all of the arguments correspond to valid fields.</span>
+        <span class="s0"># Don't allow rdclass or rdtype to be changed, though.</span>
+        <span class="s3">for </span><span class="s1">key </span><span class="s3">in </span><span class="s1">kwargs</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">key </span><span class="s4">== </span><span class="s7">&quot;rdcomment&quot;</span><span class="s4">:</span>
+                <span class="s3">continue</span>
+            <span class="s3">if </span><span class="s1">key </span><span class="s3">not in </span><span class="s1">parameters</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">AttributeError</span><span class="s4">(</span>
+                    <span class="s7">f&quot;'</span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">__class__</span><span class="s4">.</span><span class="s1">__name__</span><span class="s3">}</span><span class="s7">' object has no attribute '</span><span class="s3">{</span><span class="s1">key</span><span class="s3">}</span><span class="s7">'&quot;</span>
+                <span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">key </span><span class="s3">in </span><span class="s4">(</span><span class="s7">&quot;rdclass&quot;</span><span class="s4">, </span><span class="s7">&quot;rdtype&quot;</span><span class="s4">):</span>
+                <span class="s3">raise </span><span class="s1">AttributeError</span><span class="s4">(</span>
+                    <span class="s7">f&quot;Cannot overwrite '</span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">__class__</span><span class="s4">.</span><span class="s1">__name__</span><span class="s3">}</span><span class="s7">' attribute '</span><span class="s3">{</span><span class="s1">key</span><span class="s3">}</span><span class="s7">'&quot;</span>
+                <span class="s4">)</span>
+
+        <span class="s0"># Construct the parameter list.  For each field, use the value in</span>
+        <span class="s0"># kwargs if present, and the current value otherwise.</span>
+        <span class="s1">args </span><span class="s4">= (</span><span class="s1">kwargs</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s1">key</span><span class="s4">, </span><span class="s1">getattr</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">key</span><span class="s4">)) </span><span class="s3">for </span><span class="s1">key </span><span class="s3">in </span><span class="s1">parameters</span><span class="s4">)</span>
+
+        <span class="s0"># Create, validate, and return the new object.</span>
+        <span class="s1">rd </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">__class__</span><span class="s4">(*</span><span class="s1">args</span><span class="s4">)</span>
+        <span class="s0"># The comment is not set in the constructor, so give it special</span>
+        <span class="s0"># handling.</span>
+        <span class="s1">rdcomment </span><span class="s4">= </span><span class="s1">kwargs</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s7">&quot;rdcomment&quot;</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdcomment</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">rdcomment </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">object</span><span class="s4">.</span><span class="s1">__setattr__</span><span class="s4">(</span><span class="s1">rd</span><span class="s4">, </span><span class="s7">&quot;rdcomment&quot;</span><span class="s4">, </span><span class="s1">rdcomment</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">rd</span>
+
+    <span class="s0"># Type checking and conversion helpers.  These are class methods as</span>
+    <span class="s0"># they don't touch object state and may be useful to others.</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_rdataclass</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_rdatatype</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_bytes</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">,</span>
+        <span class="s1">value</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">,</span>
+        <span class="s1">encode</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+        <span class="s1">max_length</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">empty_ok</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; bytes</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">encode </span><span class="s3">and </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+            <span class="s1">bvalue </span><span class="s4">= </span><span class="s1">value</span><span class="s4">.</span><span class="s1">encode</span><span class="s4">()</span>
+        <span class="s3">elif </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">bytearray</span><span class="s4">):</span>
+            <span class="s1">bvalue </span><span class="s4">= </span><span class="s1">bytes</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">):</span>
+            <span class="s1">bvalue </span><span class="s4">= </span><span class="s1">value</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not bytes&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">max_length </span><span class="s3">is not None and </span><span class="s1">len</span><span class="s4">(</span><span class="s1">bvalue</span><span class="s4">) &gt; </span><span class="s1">max_length</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;too long&quot;</span><span class="s4">)</span>
+        <span class="s3">if not </span><span class="s1">empty_ok </span><span class="s3">and </span><span class="s1">len</span><span class="s4">(</span><span class="s1">bvalue</span><span class="s4">) == </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;empty bytes not allowed&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">bvalue</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_name</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s0"># Note that proper name conversion (e.g. with origin and IDNA</span>
+        <span class="s0"># awareness) is expected to be done via from_text.  This is just</span>
+        <span class="s0"># a simple thing for people invoking the constructor directly.</span>
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">elif not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not a name&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_uint8</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">int</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not an integer&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">value </span><span class="s4">&lt; </span><span class="s5">0 </span><span class="s3">or </span><span class="s1">value </span><span class="s4">&gt; </span><span class="s5">255</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not a uint8&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_uint16</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">int</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not an integer&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">value </span><span class="s4">&lt; </span><span class="s5">0 </span><span class="s3">or </span><span class="s1">value </span><span class="s4">&gt; </span><span class="s5">65535</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not a uint16&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_uint32</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">int</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not an integer&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">value </span><span class="s4">&lt; </span><span class="s5">0 </span><span class="s3">or </span><span class="s1">value </span><span class="s4">&gt; </span><span class="s5">4294967295</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not a uint32&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_uint48</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">int</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not an integer&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">value </span><span class="s4">&lt; </span><span class="s5">0 </span><span class="s3">or </span><span class="s1">value </span><span class="s4">&gt; </span><span class="s5">281474976710655</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not a uint48&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_int</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">, </span><span class="s1">low</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">high</span><span class="s4">=</span><span class="s3">None</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">int</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not an integer&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">low </span><span class="s3">is not None and </span><span class="s1">value </span><span class="s4">&lt; </span><span class="s1">low</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;value too small&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">high </span><span class="s3">is not None and </span><span class="s1">value </span><span class="s4">&gt; </span><span class="s1">high</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;value too large&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_ipv4_address</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">canonicalize</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not an IPv4 address&quot;</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_ipv6_address</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">canonicalize</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not an IPv6 address&quot;</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_bool</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">bool</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">value</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not a boolean&quot;</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_ttl</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">int</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">cls</span><span class="s4">.</span><span class="s1">_as_int</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">MAX_TTL</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">value</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;not a TTL&quot;</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_as_tuple</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">, </span><span class="s1">as_value</span><span class="s4">):</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s0"># For user convenience, if value is a singleton of the list</span>
+            <span class="s0"># element type, wrap it in a tuple.</span>
+            <span class="s3">return </span><span class="s4">(</span><span class="s1">as_value</span><span class="s4">(</span><span class="s1">value</span><span class="s4">),)</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s0"># Otherwise, check each element of the iterable *value*</span>
+            <span class="s0"># against *as_value*.</span>
+            <span class="s3">return </span><span class="s1">tuple</span><span class="s4">(</span><span class="s1">as_value</span><span class="s4">(</span><span class="s1">v</span><span class="s4">) </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">value</span><span class="s4">)</span>
+
+    <span class="s0"># Processing order</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_processing_order</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">iterable</span><span class="s4">):</span>
+        <span class="s1">items </span><span class="s4">= </span><span class="s1">list</span><span class="s4">(</span><span class="s1">iterable</span><span class="s4">)</span>
+        <span class="s1">random</span><span class="s4">.</span><span class="s1">shuffle</span><span class="s4">(</span><span class="s1">items</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">items</span>
+
+
+<span class="s4">@</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">class </span><span class="s1">GenericRdata</span><span class="s4">(</span><span class="s1">Rdata</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Generic Rdata Class 
+ 
+    This class is used for rdata types for which we have no better 
+    implementation.  It implements the DNS &quot;unknown RRs&quot; scheme. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">__slots__ </span><span class="s4">= [</span><span class="s7">&quot;data&quot;</span><span class="s4">]</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">data</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">data </span><span class="s4">= </span><span class="s1">data</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">relativize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+        <span class="s4">**</span><span class="s1">kw</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">Any</span><span class="s4">],</span>
+    <span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s7">r&quot;\# %d &quot; </span><span class="s4">% </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">data</span><span class="s4">) + </span><span class="s1">_hexify</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">data</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_text</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">tok</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">=</span><span class="s3">True</span><span class="s4">, </span><span class="s1">relativize_to</span><span class="s4">=</span><span class="s3">None</span>
+    <span class="s4">):</span>
+        <span class="s1">token </span><span class="s4">= </span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+        <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">() </span><span class="s3">or </span><span class="s1">token</span><span class="s4">.</span><span class="s1">value </span><span class="s4">!= </span><span class="s7">r&quot;\#&quot;</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s7">r&quot;generic rdata does not start with \#&quot;</span><span class="s4">)</span>
+        <span class="s1">length </span><span class="s4">= </span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_int</span><span class="s4">()</span>
+        <span class="s1">hex </span><span class="s4">= </span><span class="s1">tok</span><span class="s4">.</span><span class="s1">concatenate_remaining_identifiers</span><span class="s4">(</span><span class="s3">True</span><span class="s4">).</span><span class="s1">encode</span><span class="s4">()</span>
+        <span class="s1">data </span><span class="s4">= </span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">unhexlify</span><span class="s4">(</span><span class="s1">hex</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">data</span><span class="s4">) != </span><span class="s1">length</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s7">&quot;generic rdata hex data has wrong length&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">data</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">, </span><span class="s1">compress</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">canonicalize</span><span class="s4">=</span><span class="s3">False</span><span class="s4">):</span>
+        <span class="s1">file</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">data</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_remaining</span><span class="s4">())</span>
+
+
+<span class="s1">_rdata_classes</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">Tuple</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">], </span><span class="s1">Any</span><span class="s4">] = (</span>
+    <span class="s4">{}</span>
+<span class="s4">)</span>
+<span class="s1">_module_prefix </span><span class="s4">= </span><span class="s7">&quot;dns.rdtypes&quot;</span>
+<span class="s1">_dynamic_load_allowed </span><span class="s4">= </span><span class="s3">True</span>
+
+
+<span class="s3">def </span><span class="s1">get_rdata_class</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">use_generic</span><span class="s4">=</span><span class="s3">True</span><span class="s4">):</span>
+    <span class="s1">cls </span><span class="s4">= </span><span class="s1">_rdata_classes</span><span class="s4">.</span><span class="s1">get</span><span class="s4">((</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">))</span>
+    <span class="s3">if not </span><span class="s1">cls</span><span class="s4">:</span>
+        <span class="s1">cls </span><span class="s4">= </span><span class="s1">_rdata_classes</span><span class="s4">.</span><span class="s1">get</span><span class="s4">((</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">ANY</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">))</span>
+        <span class="s3">if not </span><span class="s1">cls </span><span class="s3">and </span><span class="s1">_dynamic_load_allowed</span><span class="s4">:</span>
+            <span class="s1">rdclass_text </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">)</span>
+            <span class="s1">rdtype_text </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">)</span>
+            <span class="s1">rdtype_text </span><span class="s4">= </span><span class="s1">rdtype_text</span><span class="s4">.</span><span class="s1">replace</span><span class="s4">(</span><span class="s7">&quot;-&quot;</span><span class="s4">, </span><span class="s7">&quot;_&quot;</span><span class="s4">)</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s1">mod </span><span class="s4">= </span><span class="s1">import_module</span><span class="s4">(</span>
+                    <span class="s7">&quot;.&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">([</span><span class="s1">_module_prefix</span><span class="s4">, </span><span class="s1">rdclass_text</span><span class="s4">, </span><span class="s1">rdtype_text</span><span class="s4">])</span>
+                <span class="s4">)</span>
+                <span class="s1">cls </span><span class="s4">= </span><span class="s1">getattr</span><span class="s4">(</span><span class="s1">mod</span><span class="s4">, </span><span class="s1">rdtype_text</span><span class="s4">)</span>
+                <span class="s1">_rdata_classes</span><span class="s4">[(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)] = </span><span class="s1">cls</span>
+            <span class="s3">except </span><span class="s1">ImportError</span><span class="s4">:</span>
+                <span class="s3">try</span><span class="s4">:</span>
+                    <span class="s1">mod </span><span class="s4">= </span><span class="s1">import_module</span><span class="s4">(</span><span class="s7">&quot;.&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">([</span><span class="s1">_module_prefix</span><span class="s4">, </span><span class="s7">&quot;ANY&quot;</span><span class="s4">, </span><span class="s1">rdtype_text</span><span class="s4">]))</span>
+                    <span class="s1">cls </span><span class="s4">= </span><span class="s1">getattr</span><span class="s4">(</span><span class="s1">mod</span><span class="s4">, </span><span class="s1">rdtype_text</span><span class="s4">)</span>
+                    <span class="s1">_rdata_classes</span><span class="s4">[(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">ANY</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)] = </span><span class="s1">cls</span>
+                    <span class="s1">_rdata_classes</span><span class="s4">[(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)] = </span><span class="s1">cls</span>
+                <span class="s3">except </span><span class="s1">ImportError</span><span class="s4">:</span>
+                    <span class="s3">pass</span>
+    <span class="s3">if not </span><span class="s1">cls </span><span class="s3">and </span><span class="s1">use_generic</span><span class="s4">:</span>
+        <span class="s1">cls </span><span class="s4">= </span><span class="s1">GenericRdata</span>
+        <span class="s1">_rdata_classes</span><span class="s4">[(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)] = </span><span class="s1">cls</span>
+    <span class="s3">return </span><span class="s1">cls</span>
+
+
+<span class="s3">def </span><span class="s1">load_all_types</span><span class="s4">(</span><span class="s1">disable_dynamic_load</span><span class="s4">=</span><span class="s3">True</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Load all rdata types for which dnspython has a non-generic implementation. 
+ 
+    Normally dnspython loads DNS rdatatype implementations on demand, but in some 
+    specialized cases loading all types at an application-controlled time is preferred. 
+ 
+    If *disable_dynamic_load*, a ``bool``, is ``True`` then dnspython will not attempt 
+    to use its dynamic loading mechanism if an unknown type is subsequently encountered, 
+    and will simply use the ``GenericRdata`` class. 
+    &quot;&quot;&quot;</span>
+    <span class="s0"># Load class IN and ANY types.</span>
+    <span class="s3">for </span><span class="s1">rdtype </span><span class="s3">in </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">:</span>
+        <span class="s1">get_rdata_class</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s3">False</span><span class="s4">)</span>
+    <span class="s0"># Load the one non-ANY implementation we have in CH.  Everything</span>
+    <span class="s0"># else in CH is an ANY type, and we'll discover those on demand but won't</span>
+    <span class="s0"># have to import anything.</span>
+    <span class="s1">get_rdata_class</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">CH</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">A</span><span class="s4">, </span><span class="s3">False</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">disable_dynamic_load</span><span class="s4">:</span>
+        <span class="s0"># Now disable dynamic loading so any subsequent unknown type immediately becomes</span>
+        <span class="s0"># GenericRdata without a load attempt.</span>
+        <span class="s3">global </span><span class="s1">_dynamic_load_allowed</span>
+        <span class="s1">_dynamic_load_allowed </span><span class="s4">= </span><span class="s3">False</span>
+
+
+<span class="s3">def </span><span class="s1">from_text</span><span class="s4">(</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">tok</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span><span class="s4">.</span><span class="s1">Tokenizer</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">relativize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s1">relativize_to</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">idna_codec</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">IDNACodec</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Rdata</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Build an rdata object from text format. 
+ 
+    This function attempts to dynamically load a class which 
+    implements the specified rdata class and type.  If there is no 
+    class-and-type-specific implementation, the GenericRdata class 
+    is used. 
+ 
+    Once a class is chosen, its from_text() class method is called 
+    with the parameters to this function. 
+ 
+    If *tok* is a ``str``, then a tokenizer is created and the string 
+    is used as its input. 
+ 
+    *rdclass*, a ``dns.rdataclass.RdataClass`` or ``str``, the rdataclass. 
+ 
+    *rdtype*, a ``dns.rdatatype.RdataType`` or ``str``, the rdatatype. 
+ 
+    *tok*, a ``dns.tokenizer.Tokenizer`` or a ``str``. 
+ 
+    *origin*, a ``dns.name.Name`` (or ``None``), the 
+    origin to use for relative names. 
+ 
+    *relativize*, a ``bool``.  If true, name will be relativized. 
+ 
+    *relativize_to*, a ``dns.name.Name`` (or ``None``), the origin to use 
+    when relativizing names.  If not set, the *origin* value will be used. 
+ 
+    *idna_codec*, a ``dns.name.IDNACodec``, specifies the IDNA 
+    encoder/decoder to use if a tokenizer needs to be created.  If 
+    ``None``, the default IDNA 2003 encoder/decoder is used.  If a 
+    tokenizer is not created, then the codec associated with the tokenizer 
+    is the one that is used. 
+ 
+    Returns an instance of the chosen Rdata subclass. 
+ 
+    &quot;&quot;&quot;</span>
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">tok</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+        <span class="s1">tok </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span><span class="s4">.</span><span class="s1">Tokenizer</span><span class="s4">(</span><span class="s1">tok</span><span class="s4">, </span><span class="s1">idna_codec</span><span class="s4">=</span><span class="s1">idna_codec</span><span class="s4">)</span>
+    <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">)</span>
+    <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s1">cls </span><span class="s4">= </span><span class="s1">get_rdata_class</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s3">with </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">ExceptionWrapper</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">):</span>
+        <span class="s1">rdata </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s3">if </span><span class="s1">cls </span><span class="s4">!= </span><span class="s1">GenericRdata</span><span class="s4">:</span>
+            <span class="s0"># peek at first token</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+            <span class="s1">tok</span><span class="s4">.</span><span class="s1">unget</span><span class="s4">(</span><span class="s1">token</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">() </span><span class="s3">and </span><span class="s1">token</span><span class="s4">.</span><span class="s1">value </span><span class="s4">== </span><span class="s7">r&quot;\#&quot;</span><span class="s4">:</span>
+                <span class="s0">#</span>
+                <span class="s0"># Known type using the generic syntax.  Extract the</span>
+                <span class="s0"># wire form from the generic syntax, and then run</span>
+                <span class="s0"># from_wire on it.</span>
+                <span class="s0">#</span>
+                <span class="s1">grdata </span><span class="s4">= </span><span class="s1">GenericRdata</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span>
+                    <span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">tok</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">, </span><span class="s1">relativize_to</span>
+                <span class="s4">)</span>
+                <span class="s1">rdata </span><span class="s4">= </span><span class="s1">from_wire</span><span class="s4">(</span>
+                    <span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">grdata</span><span class="s4">.</span><span class="s1">data</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s1">len</span><span class="s4">(</span><span class="s1">grdata</span><span class="s4">.</span><span class="s1">data</span><span class="s4">), </span><span class="s1">origin</span>
+                <span class="s4">)</span>
+                <span class="s0">#</span>
+                <span class="s0"># If this comparison isn't equal, then there must have been</span>
+                <span class="s0"># compressed names in the wire format, which is an error,</span>
+                <span class="s0"># there being no reasonable context to decompress with.</span>
+                <span class="s0">#</span>
+                <span class="s1">rwire </span><span class="s4">= </span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+                <span class="s3">if </span><span class="s1">rwire </span><span class="s4">!= </span><span class="s1">grdata</span><span class="s4">.</span><span class="s1">data</span><span class="s4">:</span>
+                    <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span>
+                        <span class="s7">&quot;compressed data in &quot;</span>
+                        <span class="s7">&quot;generic syntax form &quot;</span>
+                        <span class="s7">&quot;of known rdatatype&quot;</span>
+                    <span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">rdata </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">rdata </span><span class="s4">= </span><span class="s1">cls</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span>
+                <span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">tok</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">, </span><span class="s1">relativize_to</span>
+            <span class="s4">)</span>
+        <span class="s1">token </span><span class="s4">= </span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_eol_as_token</span><span class="s4">()</span>
+        <span class="s3">if </span><span class="s1">token</span><span class="s4">.</span><span class="s1">comment </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">object</span><span class="s4">.</span><span class="s1">__setattr__</span><span class="s4">(</span><span class="s1">rdata</span><span class="s4">, </span><span class="s7">&quot;rdcomment&quot;</span><span class="s4">, </span><span class="s1">token</span><span class="s4">.</span><span class="s1">comment</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">rdata</span>
+
+
+<span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">parser</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span><span class="s4">.</span><span class="s1">Parser</span><span class="s4">,</span>
+    <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Rdata</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Build an rdata object from wire format 
+ 
+    This function attempts to dynamically load a class which 
+    implements the specified rdata class and type.  If there is no 
+    class-and-type-specific implementation, the GenericRdata class 
+    is used. 
+ 
+    Once a class is chosen, its from_wire() class method is called 
+    with the parameters to this function. 
+ 
+    *rdclass*, a ``dns.rdataclass.RdataClass`` or ``str``, the rdataclass. 
+ 
+    *rdtype*, a ``dns.rdatatype.RdataType`` or ``str``, the rdatatype. 
+ 
+    *parser*, a ``dns.wire.Parser``, the parser, which should be 
+    restricted to the rdata length. 
+ 
+    *origin*, a ``dns.name.Name`` (or ``None``).  If not ``None``, 
+    then names will be relativized to this origin. 
+ 
+    Returns an instance of the chosen Rdata subclass. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">)</span>
+    <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s1">cls </span><span class="s4">= </span><span class="s1">get_rdata_class</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s3">with </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">ExceptionWrapper</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">FormError</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">.</span><span class="s1">from_wire_parser</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">from_wire</span><span class="s4">(</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">wire</span><span class="s4">: </span><span class="s1">bytes</span><span class="s4">,</span>
+    <span class="s1">current</span><span class="s4">: </span><span class="s1">int</span><span class="s4">,</span>
+    <span class="s1">rdlen</span><span class="s4">: </span><span class="s1">int</span><span class="s4">,</span>
+    <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Rdata</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Build an rdata object from wire format 
+ 
+    This function attempts to dynamically load a class which 
+    implements the specified rdata class and type.  If there is no 
+    class-and-type-specific implementation, the GenericRdata class 
+    is used. 
+ 
+    Once a class is chosen, its from_wire() class method is called 
+    with the parameters to this function. 
+ 
+    *rdclass*, an ``int``, the rdataclass. 
+ 
+    *rdtype*, an ``int``, the rdatatype. 
+ 
+    *wire*, a ``bytes``, the wire-format message. 
+ 
+    *current*, an ``int``, the offset in wire of the beginning of 
+    the rdata. 
+ 
+    *rdlen*, an ``int``, the length of the wire-format rdata 
+ 
+    *origin*, a ``dns.name.Name`` (or ``None``).  If not ``None``, 
+    then names will be relativized to this origin. 
+ 
+    Returns an instance of the chosen Rdata subclass. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">parser </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span><span class="s4">.</span><span class="s1">Parser</span><span class="s4">(</span><span class="s1">wire</span><span class="s4">, </span><span class="s1">current</span><span class="s4">)</span>
+    <span class="s3">with </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">restrict_to</span><span class="s4">(</span><span class="s1">rdlen</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">from_wire_parser</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">)</span>
+
+
+<span class="s3">class </span><span class="s1">RdatatypeExists</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;DNS rdatatype already exists.&quot;&quot;&quot;</span>
+
+    <span class="s1">supp_kwargs </span><span class="s4">= {</span><span class="s7">&quot;rdclass&quot;</span><span class="s4">, </span><span class="s7">&quot;rdtype&quot;</span><span class="s4">}</span>
+    <span class="s1">fmt </span><span class="s4">= (</span>
+        <span class="s7">&quot;The rdata type with class {rdclass:d} and rdtype {rdtype:d} &quot;</span>
+        <span class="s4">+ </span><span class="s7">&quot;already exists.&quot;</span>
+    <span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">register_type</span><span class="s4">(</span>
+    <span class="s1">implementation</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">,</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">int</span><span class="s4">,</span>
+    <span class="s1">rdtype_text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">is_singleton</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Dynamically register a module to handle an rdatatype. 
+ 
+    *implementation*, a module implementing the type in the usual dnspython 
+    way. 
+ 
+    *rdtype*, an ``int``, the rdatatype to register. 
+ 
+    *rdtype_text*, a ``str``, the textual form of the rdatatype. 
+ 
+    *is_singleton*, a ``bool``, indicating if the type is a singleton (i.e. 
+    RRsets of the type can have only one member.) 
+ 
+    *rdclass*, the rdataclass of the type, or ``dns.rdataclass.ANY`` if 
+    it applies to all classes. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s1">existing_cls </span><span class="s4">= </span><span class="s1">get_rdata_class</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">existing_cls </span><span class="s4">!= </span><span class="s1">GenericRdata </span><span class="s3">or </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">is_metatype</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">RdatatypeExists</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">=</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">=</span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s1">_rdata_classes</span><span class="s4">[(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">)] = </span><span class="s1">getattr</span><span class="s4">(</span>
+        <span class="s1">implementation</span><span class="s4">, </span><span class="s1">rdtype_text</span><span class="s4">.</span><span class="s1">replace</span><span class="s4">(</span><span class="s7">&quot;-&quot;</span><span class="s4">, </span><span class="s7">&quot;_&quot;</span><span class="s4">)</span>
+    <span class="s4">)</span>
+    <span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">register_type</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdtype_text</span><span class="s4">, </span><span class="s1">is_singleton</span><span class="s4">)</span>
+</pre>
+</body>
+</html>

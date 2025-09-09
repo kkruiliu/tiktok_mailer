@@ -1,0 +1,133 @@
+<html>
+<head>
+<title>NAPTR.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #2aacb8;}
+.s5 { color: #6aab73;}
+.s6 { color: #5f826b; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+NAPTR.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2007, 2009-2011 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">import </span><span class="s1">struct</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">util</span>
+
+
+<span class="s2">def </span><span class="s1">_write_string</span><span class="s3">(</span><span class="s1">file</span><span class="s3">, </span><span class="s1">s</span><span class="s3">):</span>
+    <span class="s1">l </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">s</span><span class="s3">)</span>
+    <span class="s2">assert </span><span class="s1">l </span><span class="s3">&lt; </span><span class="s4">256</span>
+    <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span><span class="s5">&quot;!B&quot;</span><span class="s3">, </span><span class="s1">l</span><span class="s3">))</span>
+    <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">s</span><span class="s3">)</span>
+
+
+<span class="s3">@</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">class </span><span class="s1">NAPTR</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">Rdata</span><span class="s3">):</span>
+    <span class="s6">&quot;&quot;&quot;NAPTR record&quot;&quot;&quot;</span>
+
+    <span class="s0"># see: RFC 3403</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= [</span><span class="s5">&quot;order&quot;</span><span class="s3">, </span><span class="s5">&quot;preference&quot;</span><span class="s3">, </span><span class="s5">&quot;flags&quot;</span><span class="s3">, </span><span class="s5">&quot;service&quot;</span><span class="s3">, </span><span class="s5">&quot;regexp&quot;</span><span class="s3">, </span><span class="s5">&quot;replacement&quot;</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span>
+        <span class="s1">self</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">order</span><span class="s3">, </span><span class="s1">preference</span><span class="s3">, </span><span class="s1">flags</span><span class="s3">, </span><span class="s1">service</span><span class="s3">, </span><span class="s1">regexp</span><span class="s3">, </span><span class="s1">replacement</span>
+    <span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">flags </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_bytes</span><span class="s3">(</span><span class="s1">flags</span><span class="s3">, </span><span class="s2">True</span><span class="s3">, </span><span class="s4">255</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">service </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_bytes</span><span class="s3">(</span><span class="s1">service</span><span class="s3">, </span><span class="s2">True</span><span class="s3">, </span><span class="s4">255</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">regexp </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_bytes</span><span class="s3">(</span><span class="s1">regexp</span><span class="s3">, </span><span class="s2">True</span><span class="s3">, </span><span class="s4">255</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">order </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_uint16</span><span class="s3">(</span><span class="s1">order</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">preference </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_uint16</span><span class="s3">(</span><span class="s1">preference</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">replacement </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_name</span><span class="s3">(</span><span class="s1">replacement</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">):</span>
+        <span class="s1">replacement </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">replacement</span><span class="s3">.</span><span class="s1">choose_relativity</span><span class="s3">(</span><span class="s1">origin</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s5">'%d %d &quot;%s&quot; &quot;%s&quot; &quot;%s&quot; %s' </span><span class="s3">% (</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">order</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">preference</span><span class="s3">,</span>
+            <span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">_escapify</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">flags</span><span class="s3">),</span>
+            <span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">_escapify</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">service</span><span class="s3">),</span>
+            <span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">_escapify</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">regexp</span><span class="s3">),</span>
+            <span class="s1">replacement</span><span class="s3">,</span>
+        <span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_text</span><span class="s3">(</span>
+        <span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">tok</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, </span><span class="s1">relativize_to</span><span class="s3">=</span><span class="s2">None</span>
+    <span class="s3">):</span>
+        <span class="s1">order </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint16</span><span class="s3">()</span>
+        <span class="s1">preference </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint16</span><span class="s3">()</span>
+        <span class="s1">flags </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s1">service </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s1">regexp </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s1">replacement </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_name</span><span class="s3">(</span><span class="s1">origin</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">, </span><span class="s1">relativize_to</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span>
+            <span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">order</span><span class="s3">, </span><span class="s1">preference</span><span class="s3">, </span><span class="s1">flags</span><span class="s3">, </span><span class="s1">service</span><span class="s3">, </span><span class="s1">regexp</span><span class="s3">, </span><span class="s1">replacement</span>
+        <span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_to_wire</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">file</span><span class="s3">, </span><span class="s1">compress</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">canonicalize</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s1">two_ints </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span><span class="s5">&quot;!HH&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">order</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">preference</span><span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">two_ints</span><span class="s3">)</span>
+        <span class="s1">_write_string</span><span class="s3">(</span><span class="s1">file</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">flags</span><span class="s3">)</span>
+        <span class="s1">_write_string</span><span class="s3">(</span><span class="s1">file</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">service</span><span class="s3">)</span>
+        <span class="s1">_write_string</span><span class="s3">(</span><span class="s1">file</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">regexp</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">replacement</span><span class="s3">.</span><span class="s1">to_wire</span><span class="s3">(</span><span class="s1">file</span><span class="s3">, </span><span class="s1">compress</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">, </span><span class="s1">canonicalize</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_wire_parser</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">parser</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s3">(</span><span class="s1">order</span><span class="s3">, </span><span class="s1">preference</span><span class="s3">) = </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_struct</span><span class="s3">(</span><span class="s5">&quot;!HH&quot;</span><span class="s3">)</span>
+        <span class="s1">strings </span><span class="s3">= []</span>
+        <span class="s2">for </span><span class="s1">_ </span><span class="s2">in </span><span class="s1">range</span><span class="s3">(</span><span class="s4">3</span><span class="s3">):</span>
+            <span class="s1">s </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_counted_bytes</span><span class="s3">()</span>
+            <span class="s1">strings</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">s</span><span class="s3">)</span>
+        <span class="s1">replacement </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_name</span><span class="s3">(</span><span class="s1">origin</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span>
+            <span class="s1">rdclass</span><span class="s3">,</span>
+            <span class="s1">rdtype</span><span class="s3">,</span>
+            <span class="s1">order</span><span class="s3">,</span>
+            <span class="s1">preference</span><span class="s3">,</span>
+            <span class="s1">strings</span><span class="s3">[</span><span class="s4">0</span><span class="s3">],</span>
+            <span class="s1">strings</span><span class="s3">[</span><span class="s4">1</span><span class="s3">],</span>
+            <span class="s1">strings</span><span class="s3">[</span><span class="s4">2</span><span class="s3">],</span>
+            <span class="s1">replacement</span><span class="s3">,</span>
+        <span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_processing_priority</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">order</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">preference</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">_processing_order</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s1">iterable</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdtypes</span><span class="s3">.</span><span class="s1">util</span><span class="s3">.</span><span class="s1">priority_processing_order</span><span class="s3">(</span><span class="s1">iterable</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

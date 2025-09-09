@@ -1,0 +1,372 @@
+<html>
+<head>
+<title>rtf.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #5f826b; font-style: italic;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #6aab73;}
+.s5 { color: #2aacb8;}
+.s6 { color: #7a7e85;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+rtf.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+    pygments.formatters.rtf 
+    ~~~~~~~~~~~~~~~~~~~~~~~ 
+ 
+    A formatter that generates RTF files. 
+ 
+    :copyright: Copyright 2006-2024 by the Pygments team, see AUTHORS. 
+    :license: BSD, see LICENSE for details. 
+&quot;&quot;&quot;</span>
+
+<span class="s2">from </span><span class="s1">collections </span><span class="s2">import </span><span class="s1">OrderedDict</span>
+<span class="s2">from </span><span class="s1">pip</span><span class="s3">.</span><span class="s1">_vendor</span><span class="s3">.</span><span class="s1">pygments</span><span class="s3">.</span><span class="s1">formatter </span><span class="s2">import </span><span class="s1">Formatter</span>
+<span class="s2">from </span><span class="s1">pip</span><span class="s3">.</span><span class="s1">_vendor</span><span class="s3">.</span><span class="s1">pygments</span><span class="s3">.</span><span class="s1">style </span><span class="s2">import </span><span class="s1">_ansimap</span>
+<span class="s2">from </span><span class="s1">pip</span><span class="s3">.</span><span class="s1">_vendor</span><span class="s3">.</span><span class="s1">pygments</span><span class="s3">.</span><span class="s1">util </span><span class="s2">import </span><span class="s1">get_bool_opt</span><span class="s3">, </span><span class="s1">get_int_opt</span><span class="s3">, </span><span class="s1">get_list_opt</span><span class="s3">, </span><span class="s1">surrogatepair</span>
+
+
+<span class="s1">__all__ </span><span class="s3">= [</span><span class="s4">'RtfFormatter'</span><span class="s3">]</span>
+
+
+<span class="s2">class </span><span class="s1">RtfFormatter</span><span class="s3">(</span><span class="s1">Formatter</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Format tokens as RTF markup. This formatter automatically outputs full RTF 
+    documents with color information and other useful stuff. Perfect for Copy and 
+    Paste into Microsoft(R) Word(R) documents. 
+ 
+    Please note that ``encoding`` and ``outencoding`` options are ignored. 
+    The RTF format is ASCII natively, but handles unicode characters correctly 
+    thanks to escape sequences. 
+ 
+    .. versionadded:: 0.6 
+ 
+    Additional options accepted: 
+ 
+    `style` 
+        The style to use, can be a string or a Style subclass (default: 
+        ``'default'``). 
+ 
+    `fontface` 
+        The used font family, for example ``Bitstream Vera Sans``. Defaults to 
+        some generic font which is supposed to have fixed width. 
+ 
+    `fontsize` 
+        Size of the font used. Size is specified in half points. The 
+        default is 24 half-points, giving a size 12 font. 
+ 
+        .. versionadded:: 2.0 
+ 
+    `linenos` 
+        Turn on line numbering (default: ``False``). 
+ 
+        .. versionadded:: 2.18 
+ 
+    `lineno_fontsize` 
+        Font size for line numbers. Size is specified in half points 
+        (default: `fontsize`).  
+ 
+        .. versionadded:: 2.18 
+ 
+    `lineno_padding` 
+        Number of spaces between the (inline) line numbers and the 
+        source code (default: ``2``). 
+ 
+        .. versionadded:: 2.18 
+ 
+    `linenostart` 
+        The line number for the first line (default: ``1``). 
+ 
+        .. versionadded:: 2.18 
+ 
+    `linenostep` 
+        If set to a number n &gt; 1, only every nth line number is printed. 
+ 
+        .. versionadded:: 2.18 
+ 
+    `lineno_color` 
+        Color for line numbers specified as a hex triplet, e.g. ``'5e5e5e'``.  
+        Defaults to the style's line number color if it is a hex triplet,  
+        otherwise ansi bright black. 
+ 
+        .. versionadded:: 2.18 
+ 
+    `hl_lines` 
+        Specify a list of lines to be highlighted, as line numbers separated by 
+        spaces, e.g. ``'3 7 8'``. The line numbers are relative to the input  
+        (i.e. the first line is line 1) unless `hl_linenostart` is set. 
+ 
+        .. versionadded:: 2.18 
+ 
+    `hl_color` 
+        Color for highlighting the lines specified in `hl_lines`, specified as  
+        a hex triplet (default: style's `highlight_color`). 
+ 
+        .. versionadded:: 2.18 
+ 
+    `hl_linenostart` 
+        If set to ``True`` line numbers in `hl_lines` are specified 
+        relative to `linenostart` (default ``False``). 
+ 
+        .. versionadded:: 2.18 
+    &quot;&quot;&quot;</span>
+    <span class="s1">name </span><span class="s3">= </span><span class="s4">'RTF'</span>
+    <span class="s1">aliases </span><span class="s3">= [</span><span class="s4">'rtf'</span><span class="s3">]</span>
+    <span class="s1">filenames </span><span class="s3">= [</span><span class="s4">'*.rtf'</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, **</span><span class="s1">options</span><span class="s3">):</span>
+        <span class="s0">r&quot;&quot;&quot; 
+        Additional options accepted: 
+ 
+        ``fontface`` 
+            Name of the font used. Could for example be ``'Courier New'`` 
+            to further specify the default which is ``'\fmodern'``. The RTF 
+            specification claims that ``\fmodern`` are &quot;Fixed-pitch serif 
+            and sans serif fonts&quot;. Hope every RTF implementation thinks 
+            the same about modern... 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s1">Formatter</span><span class="s3">.</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, **</span><span class="s1">options</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">fontface </span><span class="s3">= </span><span class="s1">options</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s4">'fontface'</span><span class="s3">) </span><span class="s2">or </span><span class="s4">''</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">fontsize </span><span class="s3">= </span><span class="s1">get_int_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'fontsize'</span><span class="s3">, </span><span class="s5">0</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">linenos </span><span class="s3">= </span><span class="s1">get_bool_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'linenos'</span><span class="s3">, </span><span class="s2">False</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_fontsize </span><span class="s3">= </span><span class="s1">get_int_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'lineno_fontsize'</span><span class="s3">,</span>
+                                           <span class="s1">self</span><span class="s3">.</span><span class="s1">fontsize</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_padding </span><span class="s3">= </span><span class="s1">get_int_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'lineno_padding'</span><span class="s3">, </span><span class="s5">2</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">linenostart </span><span class="s3">= </span><span class="s1">abs</span><span class="s3">(</span><span class="s1">get_int_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'linenostart'</span><span class="s3">, </span><span class="s5">1</span><span class="s3">))</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">linenostep </span><span class="s3">= </span><span class="s1">abs</span><span class="s3">(</span><span class="s1">get_int_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'linenostep'</span><span class="s3">, </span><span class="s5">1</span><span class="s3">))</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">hl_linenostart </span><span class="s3">= </span><span class="s1">get_bool_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'hl_linenostart'</span><span class="s3">, </span><span class="s2">False</span><span class="s3">)</span>
+
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">hl_color </span><span class="s3">= </span><span class="s1">options</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s4">'hl_color'</span><span class="s3">, </span><span class="s4">''</span><span class="s3">)</span>
+        <span class="s2">if not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">hl_color</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">hl_color </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">style</span><span class="s3">.</span><span class="s1">highlight_color</span>
+
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">hl_lines </span><span class="s3">= []</span>
+        <span class="s2">for </span><span class="s1">lineno </span><span class="s2">in </span><span class="s1">get_list_opt</span><span class="s3">(</span><span class="s1">options</span><span class="s3">, </span><span class="s4">'hl_lines'</span><span class="s3">, []):</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">lineno </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">lineno</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">hl_linenostart</span><span class="s3">:</span>
+                    <span class="s1">lineno </span><span class="s3">= </span><span class="s1">lineno </span><span class="s3">- </span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenostart </span><span class="s3">+ </span><span class="s5">1</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">hl_lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">lineno</span><span class="s3">)</span>
+            <span class="s2">except </span><span class="s1">ValueError</span><span class="s3">:</span>
+                <span class="s2">pass</span>
+
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_color </span><span class="s3">= </span><span class="s1">options</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s4">'lineno_color'</span><span class="s3">, </span><span class="s4">''</span><span class="s3">)</span>
+        <span class="s2">if not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_color</span><span class="s3">:</span>
+            <span class="s2">if  </span><span class="s1">self</span><span class="s3">.</span><span class="s1">style</span><span class="s3">.</span><span class="s1">line_number_color </span><span class="s3">== </span><span class="s4">'inherit'</span><span class="s3">:</span>
+                <span class="s6"># style color is the css value 'inherit'</span>
+                <span class="s6"># default to ansi bright-black</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_color </span><span class="s3">= </span><span class="s1">_ansimap</span><span class="s3">[</span><span class="s4">'ansibrightblack'</span><span class="s3">]</span>
+            <span class="s2">else</span><span class="s3">:</span>
+                <span class="s6"># style color is assumed to be a hex triplet as other</span>
+                <span class="s6"># colors in pygments/style.py</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_color </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">style</span><span class="s3">.</span><span class="s1">line_number_color</span>
+
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_create_color_mapping</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">_escape</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">text</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">text</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">'</span><span class="s3">, </span><span class="s4">'</span><span class="s2">\\\\</span><span class="s4">'</span><span class="s3">) </span><span class="s1">\</span>
+                   <span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s4">'{'</span><span class="s3">, </span><span class="s4">'</span><span class="s2">\\</span><span class="s4">{'</span><span class="s3">) </span><span class="s1">\</span>
+                   <span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s4">'}'</span><span class="s3">, </span><span class="s4">'</span><span class="s2">\\</span><span class="s4">}'</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_escape_text</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">text</span><span class="s3">):</span>
+        <span class="s6"># empty strings, should give a small performance improvement</span>
+        <span class="s2">if not </span><span class="s1">text</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s4">''</span>
+
+        <span class="s6"># escape text</span>
+        <span class="s1">text </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_escape</span><span class="s3">(</span><span class="s1">text</span><span class="s3">)</span>
+
+        <span class="s1">buf </span><span class="s3">= []</span>
+        <span class="s2">for </span><span class="s1">c </span><span class="s2">in </span><span class="s1">text</span><span class="s3">:</span>
+            <span class="s1">cn </span><span class="s3">= </span><span class="s1">ord</span><span class="s3">(</span><span class="s1">c</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">cn </span><span class="s3">&lt; (</span><span class="s5">2</span><span class="s3">**</span><span class="s5">7</span><span class="s3">):</span>
+                <span class="s6"># ASCII character</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">str</span><span class="s3">(</span><span class="s1">c</span><span class="s3">))</span>
+            <span class="s2">elif </span><span class="s3">(</span><span class="s5">2</span><span class="s3">**</span><span class="s5">7</span><span class="s3">) &lt;= </span><span class="s1">cn </span><span class="s3">&lt; (</span><span class="s5">2</span><span class="s3">**</span><span class="s5">16</span><span class="s3">):</span>
+                <span class="s6"># single unicode escape sequence</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'{</span><span class="s2">\\</span><span class="s4">u%d}' </span><span class="s3">% </span><span class="s1">cn</span><span class="s3">)</span>
+            <span class="s2">elif </span><span class="s3">(</span><span class="s5">2</span><span class="s3">**</span><span class="s5">16</span><span class="s3">) &lt;= </span><span class="s1">cn</span><span class="s3">:</span>
+                <span class="s6"># RTF limits unicode to 16 bits.</span>
+                <span class="s6"># Force surrogate pairs</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'{</span><span class="s2">\\</span><span class="s4">u%d}{</span><span class="s2">\\</span><span class="s4">u%d}' </span><span class="s3">% </span><span class="s1">surrogatepair</span><span class="s3">(</span><span class="s1">cn</span><span class="s3">))</span>
+
+        <span class="s2">return </span><span class="s4">''</span><span class="s3">.</span><span class="s1">join</span><span class="s3">(</span><span class="s1">buf</span><span class="s3">).</span><span class="s1">replace</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\n</span><span class="s4">'</span><span class="s3">, </span><span class="s4">'</span><span class="s2">\\</span><span class="s4">par'</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">staticmethod</span>
+    <span class="s2">def </span><span class="s1">hex_to_rtf_color</span><span class="s3">(</span><span class="s1">hex_color</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">hex_color</span><span class="s3">[</span><span class="s5">0</span><span class="s3">] == </span><span class="s4">&quot;#&quot;</span><span class="s3">:</span>
+            <span class="s1">hex_color </span><span class="s3">= </span><span class="s1">hex_color</span><span class="s3">[</span><span class="s5">1</span><span class="s3">:]</span>
+
+        <span class="s2">return </span><span class="s4">'</span><span class="s2">\\</span><span class="s4">red%d</span><span class="s2">\\</span><span class="s4">green%d</span><span class="s2">\\</span><span class="s4">blue%d;' </span><span class="s3">% (</span>
+                        <span class="s1">int</span><span class="s3">(</span><span class="s1">hex_color</span><span class="s3">[</span><span class="s5">0</span><span class="s3">:</span><span class="s5">2</span><span class="s3">], </span><span class="s5">16</span><span class="s3">),</span>
+                        <span class="s1">int</span><span class="s3">(</span><span class="s1">hex_color</span><span class="s3">[</span><span class="s5">2</span><span class="s3">:</span><span class="s5">4</span><span class="s3">], </span><span class="s5">16</span><span class="s3">),</span>
+                        <span class="s1">int</span><span class="s3">(</span><span class="s1">hex_color</span><span class="s3">[</span><span class="s5">4</span><span class="s3">:</span><span class="s5">6</span><span class="s3">], </span><span class="s5">16</span><span class="s3">)</span>
+                    <span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_split_tokens_on_newlines</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">tokensource</span><span class="s3">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Split tokens containing newline characters into multiple token 
+        each representing a line of the input file. Needed for numbering 
+        lines of e.g. multiline comments. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">for </span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">value </span><span class="s2">in </span><span class="s1">tokensource</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">value </span><span class="s3">== </span><span class="s4">'</span><span class="s2">\n</span><span class="s4">'</span><span class="s3">:</span>
+                <span class="s2">yield </span><span class="s3">(</span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">value</span><span class="s3">)</span>
+            <span class="s2">elif </span><span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">&quot; </span><span class="s2">in </span><span class="s1">value</span><span class="s3">:</span>
+                <span class="s1">lines </span><span class="s3">= </span><span class="s1">value</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">&quot;</span><span class="s3">)</span>
+                <span class="s2">for </span><span class="s1">line </span><span class="s2">in </span><span class="s1">lines</span><span class="s3">[:-</span><span class="s5">1</span><span class="s3">]:</span>
+                    <span class="s2">yield </span><span class="s3">(</span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">line</span><span class="s3">+</span><span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">&quot;</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">lines</span><span class="s3">[-</span><span class="s5">1</span><span class="s3">]:</span>
+                    <span class="s2">yield </span><span class="s3">(</span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">lines</span><span class="s3">[-</span><span class="s5">1</span><span class="s3">])</span>
+            <span class="s2">else</span><span class="s3">:</span>
+                <span class="s2">yield </span><span class="s3">(</span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">value</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_create_color_mapping</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Create a mapping of style hex colors to index/offset in 
+        the RTF color table. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">color_mapping </span><span class="s3">= </span><span class="s1">OrderedDict</span><span class="s3">()</span>
+        <span class="s1">offset </span><span class="s3">= </span><span class="s5">1</span>
+
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenos</span><span class="s3">:</span>
+            <span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_color</span><span class="s3">] = </span><span class="s1">offset</span>
+            <span class="s1">offset </span><span class="s3">+= </span><span class="s5">1</span>
+
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">hl_lines</span><span class="s3">:</span>
+            <span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">self</span><span class="s3">.</span><span class="s1">hl_color</span><span class="s3">] = </span><span class="s1">offset</span>
+            <span class="s1">offset </span><span class="s3">+= </span><span class="s5">1</span>
+
+        <span class="s2">for </span><span class="s1">_</span><span class="s3">, </span><span class="s1">style </span><span class="s2">in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">style</span><span class="s3">:</span>
+            <span class="s2">for </span><span class="s1">color </span><span class="s2">in </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'color'</span><span class="s3">], </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'bgcolor'</span><span class="s3">], </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'border'</span><span class="s3">]:</span>
+                <span class="s2">if </span><span class="s1">color </span><span class="s2">and </span><span class="s1">color </span><span class="s2">not in </span><span class="s1">color_mapping</span><span class="s3">:</span>
+                    <span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">color</span><span class="s3">] = </span><span class="s1">offset</span>
+                    <span class="s1">offset </span><span class="s3">+= </span><span class="s5">1</span>
+
+        <span class="s2">return </span><span class="s1">color_mapping</span>
+
+    <span class="s3">@</span><span class="s1">property</span>
+    <span class="s2">def </span><span class="s1">_lineno_template</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_fontsize </span><span class="s3">!= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">fontsize</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s4">'{{</span><span class="s2">\\</span><span class="s4">fs{} </span><span class="s2">\\</span><span class="s4">cf{} %s{}}}'</span><span class="s3">.</span><span class="s1">format</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_fontsize</span><span class="s3">,</span>
+                          <span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_color</span><span class="s3">],</span>
+                          <span class="s4">&quot; &quot; </span><span class="s3">* </span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_padding</span><span class="s3">)</span>
+
+        <span class="s2">return </span><span class="s4">'{{</span><span class="s2">\\</span><span class="s4">cf{} %s{}}}'</span><span class="s3">.</span><span class="s1">format</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_color</span><span class="s3">],</span>
+                      <span class="s4">&quot; &quot; </span><span class="s3">* </span><span class="s1">self</span><span class="s3">.</span><span class="s1">lineno_padding</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">property</span>
+    <span class="s2">def </span><span class="s1">_hl_open_str</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s4">rf'</span><span class="s2">{{</span><span class="s4">\highlight</span><span class="s2">{</span><span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">self</span><span class="s3">.</span><span class="s1">hl_color</span><span class="s3">]</span><span class="s2">} </span><span class="s4">'</span>
+
+    <span class="s3">@</span><span class="s1">property</span>
+    <span class="s2">def </span><span class="s1">_rtf_header</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s1">lines </span><span class="s3">= []</span>
+        <span class="s6"># rtf 1.8 header</span>
+        <span class="s1">lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'{</span><span class="s2">\\</span><span class="s4">rtf1</span><span class="s2">\\</span><span class="s4">ansi</span><span class="s2">\\</span><span class="s4">uc0</span><span class="s2">\\</span><span class="s4">deff0'</span>
+                     <span class="s4">'{</span><span class="s2">\\</span><span class="s4">fonttbl{</span><span class="s2">\\</span><span class="s4">f0</span><span class="s2">\\</span><span class="s4">fmodern</span><span class="s2">\\</span><span class="s4">fprq1</span><span class="s2">\\</span><span class="s4">fcharset0%s;}}'</span>
+                     <span class="s3">% (</span><span class="s1">self</span><span class="s3">.</span><span class="s1">fontface </span><span class="s2">and </span><span class="s4">' '</span>
+                        <span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_escape</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">fontface</span><span class="s3">) </span><span class="s2">or </span><span class="s4">''</span><span class="s3">))</span>
+
+        <span class="s6"># color table</span>
+        <span class="s1">lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'{</span><span class="s2">\\</span><span class="s4">colortbl;'</span><span class="s3">)</span>
+        <span class="s2">for </span><span class="s1">color</span><span class="s3">, </span><span class="s1">_ </span><span class="s2">in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping</span><span class="s3">.</span><span class="s1">items</span><span class="s3">():</span>
+            <span class="s1">lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">hex_to_rtf_color</span><span class="s3">(</span><span class="s1">color</span><span class="s3">))</span>
+        <span class="s1">lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'}'</span><span class="s3">)</span>
+
+        <span class="s6"># font and fontsize</span>
+        <span class="s1">lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">f0</span><span class="s2">\\</span><span class="s4">sa0'</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">fontsize</span><span class="s3">:</span>
+            <span class="s1">lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">fs%d' </span><span class="s3">% </span><span class="s1">self</span><span class="s3">.</span><span class="s1">fontsize</span><span class="s3">)</span>
+
+        <span class="s6"># ensure Libre Office Writer imports and renders consecutive</span>
+        <span class="s6"># space characters the same width, needed for line numbering.</span>
+        <span class="s6"># https://bugs.documentfoundation.org/show_bug.cgi?id=144050</span>
+        <span class="s1">lines</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">dntblnsbdb'</span><span class="s3">)</span>
+
+        <span class="s2">return </span><span class="s1">lines</span>
+
+    <span class="s2">def </span><span class="s1">format_unencoded</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">tokensource</span><span class="s3">, </span><span class="s1">outfile</span><span class="s3">):</span>
+        <span class="s2">for </span><span class="s1">line </span><span class="s2">in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_rtf_header</span><span class="s3">:</span>
+            <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">line </span><span class="s3">+ </span><span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">&quot;</span><span class="s3">)</span>
+
+        <span class="s1">tokensource </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_split_tokens_on_newlines</span><span class="s3">(</span><span class="s1">tokensource</span><span class="s3">)</span>
+
+        <span class="s6"># first pass of tokens to count lines, needed for line numbering</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenos</span><span class="s3">:</span>
+            <span class="s1">line_count </span><span class="s3">= </span><span class="s5">0</span>
+            <span class="s1">tokens </span><span class="s3">= [] </span><span class="s6"># for copying the token source generator</span>
+            <span class="s2">for </span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">value </span><span class="s2">in </span><span class="s1">tokensource</span><span class="s3">:</span>
+                <span class="s1">tokens</span><span class="s3">.</span><span class="s1">append</span><span class="s3">((</span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">value</span><span class="s3">))</span>
+                <span class="s2">if </span><span class="s1">value</span><span class="s3">.</span><span class="s1">endswith</span><span class="s3">(</span><span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">&quot;</span><span class="s3">):</span>
+                    <span class="s1">line_count </span><span class="s3">+= </span><span class="s5">1</span>
+
+            <span class="s6"># width of line number strings (for padding with spaces)</span>
+            <span class="s1">linenos_width </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">str</span><span class="s3">(</span><span class="s1">line_count</span><span class="s3">+</span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenostart</span><span class="s3">-</span><span class="s5">1</span><span class="s3">))</span>
+
+            <span class="s1">tokensource </span><span class="s3">= </span><span class="s1">tokens</span>
+
+        <span class="s6"># highlight stream</span>
+        <span class="s1">lineno </span><span class="s3">= </span><span class="s5">1</span>
+        <span class="s1">start_new_line </span><span class="s3">= </span><span class="s2">True</span>
+        <span class="s2">for </span><span class="s1">ttype</span><span class="s3">, </span><span class="s1">value </span><span class="s2">in </span><span class="s1">tokensource</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">start_new_line </span><span class="s2">and </span><span class="s1">lineno </span><span class="s2">in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">hl_lines</span><span class="s3">:</span>
+                <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_hl_open_str</span><span class="s3">)</span>
+
+            <span class="s2">if </span><span class="s1">start_new_line </span><span class="s2">and </span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenos</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s3">(</span><span class="s1">lineno</span><span class="s3">-</span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenostart</span><span class="s3">+</span><span class="s5">1</span><span class="s3">)%</span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenostep </span><span class="s3">== </span><span class="s5">0</span><span class="s3">:</span>
+                    <span class="s1">current_lineno </span><span class="s3">= </span><span class="s1">lineno </span><span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">linenostart </span><span class="s3">- </span><span class="s5">1</span>
+                    <span class="s1">lineno_str </span><span class="s3">= </span><span class="s1">str</span><span class="s3">(</span><span class="s1">current_lineno</span><span class="s3">).</span><span class="s1">rjust</span><span class="s3">(</span><span class="s1">linenos_width</span><span class="s3">)</span>
+                <span class="s2">else</span><span class="s3">:</span>
+                    <span class="s1">lineno_str </span><span class="s3">= </span><span class="s4">&quot;&quot;</span><span class="s3">.</span><span class="s1">rjust</span><span class="s3">(</span><span class="s1">linenos_width</span><span class="s3">)</span>
+                <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lineno_template </span><span class="s3">% </span><span class="s1">lineno_str</span><span class="s3">)</span>
+
+            <span class="s2">while not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">style</span><span class="s3">.</span><span class="s1">styles_token</span><span class="s3">(</span><span class="s1">ttype</span><span class="s3">) </span><span class="s2">and </span><span class="s1">ttype</span><span class="s3">.</span><span class="s1">parent</span><span class="s3">:</span>
+                <span class="s1">ttype </span><span class="s3">= </span><span class="s1">ttype</span><span class="s3">.</span><span class="s1">parent</span>
+            <span class="s1">style </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">style</span><span class="s3">.</span><span class="s1">style_for_token</span><span class="s3">(</span><span class="s1">ttype</span><span class="s3">)</span>
+            <span class="s1">buf </span><span class="s3">= []</span>
+            <span class="s2">if </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'bgcolor'</span><span class="s3">]:</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">cb%d' </span><span class="s3">% </span><span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">style</span><span class="s3">[</span><span class="s4">'bgcolor'</span><span class="s3">]])</span>
+            <span class="s2">if </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'color'</span><span class="s3">]:</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">cf%d' </span><span class="s3">% </span><span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">style</span><span class="s3">[</span><span class="s4">'color'</span><span class="s3">]])</span>
+            <span class="s2">if </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'bold'</span><span class="s3">]:</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">b'</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'italic'</span><span class="s3">]:</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">i'</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'underline'</span><span class="s3">]:</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">ul'</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">style</span><span class="s3">[</span><span class="s4">'border'</span><span class="s3">]:</span>
+                <span class="s1">buf</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s4">'</span><span class="s2">\\</span><span class="s4">chbrdr</span><span class="s2">\\</span><span class="s4">chcfpat%d' </span><span class="s3">%</span>
+                           <span class="s1">self</span><span class="s3">.</span><span class="s1">color_mapping</span><span class="s3">[</span><span class="s1">style</span><span class="s3">[</span><span class="s4">'border'</span><span class="s3">]])</span>
+            <span class="s1">start </span><span class="s3">= </span><span class="s4">''</span><span class="s3">.</span><span class="s1">join</span><span class="s3">(</span><span class="s1">buf</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">start</span><span class="s3">:</span>
+                <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s4">f'</span><span class="s2">{{{</span><span class="s1">start</span><span class="s2">} </span><span class="s4">'</span><span class="s3">)</span>
+            <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_escape_text</span><span class="s3">(</span><span class="s1">value</span><span class="s3">))</span>
+            <span class="s2">if </span><span class="s1">start</span><span class="s3">:</span>
+                <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s4">'}'</span><span class="s3">)</span>
+            <span class="s1">start_new_line </span><span class="s3">= </span><span class="s2">False</span>
+
+            <span class="s6"># complete line of input</span>
+            <span class="s2">if </span><span class="s1">value</span><span class="s3">.</span><span class="s1">endswith</span><span class="s3">(</span><span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">&quot;</span><span class="s3">):</span>
+                <span class="s6"># close line highlighting</span>
+                <span class="s2">if </span><span class="s1">lineno </span><span class="s2">in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">hl_lines</span><span class="s3">:</span>
+                    <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s4">'}'</span><span class="s3">)</span>
+                <span class="s6"># newline in RTF file after closing }</span>
+                <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">&quot;</span><span class="s3">)</span>
+
+                <span class="s1">start_new_line </span><span class="s3">= </span><span class="s2">True</span>
+                <span class="s1">lineno </span><span class="s3">+= </span><span class="s5">1</span>
+
+        <span class="s1">outfile</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s4">'}</span><span class="s2">\n</span><span class="s4">'</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<html>
+<head>
+<title>exception.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+exception.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;Common DNS Exceptions. 
+ 
+Dnspython modules may also define their own exceptions, which will 
+always be subclasses of ``DNSException``. 
+&quot;&quot;&quot;</span>
+
+
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Set</span>
+
+
+<span class="s3">class </span><span class="s1">DNSException</span><span class="s4">(</span><span class="s1">Exception</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Abstract base class shared by all dnspython exceptions. 
+ 
+    It supports two basic modes of operation: 
+ 
+    a) Old/compatible mode is used if ``__init__`` was called with 
+    empty *kwargs*.  In compatible mode all *args* are passed 
+    to the standard Python Exception class as before and all *args* are 
+    printed by the standard ``__str__`` implementation.  Class variable 
+    ``msg`` (or doc string if ``msg`` is ``None``) is returned from ``str()`` 
+    if *args* is empty. 
+ 
+    b) New/parametrized mode is used if ``__init__`` was called with 
+    non-empty *kwargs*. 
+    In the new mode *args* must be empty and all kwargs must match 
+    those set in class variable ``supp_kwargs``. All kwargs are stored inside 
+    ``self.kwargs`` and used in a new ``__str__`` implementation to construct 
+    a formatted message based on the ``fmt`` class variable, a ``string``. 
+ 
+    In the simplest case it is enough to override the ``supp_kwargs`` 
+    and ``fmt`` class variables to get nice parametrized messages. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">msg</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None  </span><span class="s0"># non-parametrized message</span>
+    <span class="s1">supp_kwargs</span><span class="s4">: </span><span class="s1">Set</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s1">set</span><span class="s4">()  </span><span class="s0"># accepted parameters for _fmt_kwargs (sanity check)</span>
+    <span class="s1">fmt</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None  </span><span class="s0"># message parametrized with results from _fmt_kwargs</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, *</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_check_params</span><span class="s4">(*</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">kwargs</span><span class="s4">:</span>
+            <span class="s0"># This call to a virtual method from __init__ is ok in our usage</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">kwargs </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_check_kwargs</span><span class="s4">(**</span><span class="s1">kwargs</span><span class="s4">)  </span><span class="s0"># lgtm[py/init-calls-subclass]</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">msg </span><span class="s4">= </span><span class="s1">str</span><span class="s4">(</span><span class="s1">self</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">kwargs </span><span class="s4">= </span><span class="s1">dict</span><span class="s4">()  </span><span class="s0"># defined but empty for old mode exceptions</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">msg </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s0"># doc string is better implicit message than empty string</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">msg </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">__doc__</span>
+        <span class="s3">if </span><span class="s1">args</span><span class="s4">:</span>
+            <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(*</span><span class="s1">args</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">msg</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_check_params</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, *</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Old exceptions supported only args and not kwargs. 
+ 
+        For sanity we do not allow to mix old and new behavior.&quot;&quot;&quot;</span>
+        <span class="s3">if </span><span class="s1">args </span><span class="s3">or </span><span class="s1">kwargs</span><span class="s4">:</span>
+            <span class="s3">assert </span><span class="s1">bool</span><span class="s4">(</span><span class="s1">args</span><span class="s4">) != </span><span class="s1">bool</span><span class="s4">(</span>
+                <span class="s1">kwargs</span>
+            <span class="s4">), </span><span class="s5">&quot;keyword arguments are mutually exclusive with positional args&quot;</span>
+
+    <span class="s3">def </span><span class="s1">_check_kwargs</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">kwargs</span><span class="s4">:</span>
+            <span class="s3">assert </span><span class="s4">(</span>
+                <span class="s1">set</span><span class="s4">(</span><span class="s1">kwargs</span><span class="s4">.</span><span class="s1">keys</span><span class="s4">()) == </span><span class="s1">self</span><span class="s4">.</span><span class="s1">supp_kwargs</span>
+            <span class="s4">), </span><span class="s5">f&quot;following set of keyword args is required: </span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">supp_kwargs</span><span class="s3">}</span><span class="s5">&quot;</span>
+        <span class="s3">return </span><span class="s1">kwargs</span>
+
+    <span class="s3">def </span><span class="s1">_fmt_kwargs</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Format kwargs before printing them. 
+ 
+        Resulting dictionary has to have keys necessary for str.format call 
+        on fmt class variable. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">fmtargs </span><span class="s4">= {}</span>
+        <span class="s3">for </span><span class="s1">kw</span><span class="s4">, </span><span class="s1">data </span><span class="s3">in </span><span class="s1">kwargs</span><span class="s4">.</span><span class="s1">items</span><span class="s4">():</span>
+            <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">data</span><span class="s4">, (</span><span class="s1">list</span><span class="s4">, </span><span class="s1">set</span><span class="s4">)):</span>
+                <span class="s0"># convert list of &lt;someobj&gt; to list of str(&lt;someobj&gt;)</span>
+                <span class="s1">fmtargs</span><span class="s4">[</span><span class="s1">kw</span><span class="s4">] = </span><span class="s1">list</span><span class="s4">(</span><span class="s1">map</span><span class="s4">(</span><span class="s1">str</span><span class="s4">, </span><span class="s1">data</span><span class="s4">))</span>
+                <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">fmtargs</span><span class="s4">[</span><span class="s1">kw</span><span class="s4">]) == </span><span class="s6">1</span><span class="s4">:</span>
+                    <span class="s0"># remove list brackets [] from single-item lists</span>
+                    <span class="s1">fmtargs</span><span class="s4">[</span><span class="s1">kw</span><span class="s4">] = </span><span class="s1">fmtargs</span><span class="s4">[</span><span class="s1">kw</span><span class="s4">].</span><span class="s1">pop</span><span class="s4">()</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">fmtargs</span><span class="s4">[</span><span class="s1">kw</span><span class="s4">] = </span><span class="s1">data</span>
+        <span class="s3">return </span><span class="s1">fmtargs</span>
+
+    <span class="s3">def </span><span class="s1">__str__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">kwargs </span><span class="s3">and </span><span class="s1">self</span><span class="s4">.</span><span class="s1">fmt</span><span class="s4">:</span>
+            <span class="s0"># provide custom message constructed from keyword arguments</span>
+            <span class="s1">fmtargs </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_fmt_kwargs</span><span class="s4">(**</span><span class="s1">self</span><span class="s4">.</span><span class="s1">kwargs</span><span class="s4">)</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">fmt</span><span class="s4">.</span><span class="s1">format</span><span class="s4">(**</span><span class="s1">fmtargs</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s0"># print *args directly in the same way as old DNSException</span>
+            <span class="s3">return </span><span class="s1">super</span><span class="s4">().</span><span class="s1">__str__</span><span class="s4">()</span>
+
+
+<span class="s3">class </span><span class="s1">FormError</span><span class="s4">(</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;DNS message is malformed.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Text input is malformed.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">UnexpectedEnd</span><span class="s4">(</span><span class="s1">SyntaxError</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Text input ended unexpectedly.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">TooBig</span><span class="s4">(</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;The DNS message is too big.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">Timeout</span><span class="s4">(</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;The DNS operation timed out.&quot;&quot;&quot;</span>
+
+    <span class="s1">supp_kwargs </span><span class="s4">= {</span><span class="s5">&quot;timeout&quot;</span><span class="s4">}</span>
+    <span class="s1">fmt </span><span class="s4">= </span><span class="s5">&quot;The DNS operation timed out after {timeout:.3f} seconds&quot;</span>
+
+    <span class="s0"># We do this as otherwise mypy complains about unexpected keyword argument</span>
+    <span class="s0"># idna_exception</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, *</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(*</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">)</span>
+
+
+<span class="s3">class </span><span class="s1">UnsupportedAlgorithm</span><span class="s4">(</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;The DNSSEC algorithm is not supported.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">AlgorithmKeyMismatch</span><span class="s4">(</span><span class="s1">UnsupportedAlgorithm</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;The DNSSEC algorithm is not supported for the given key type.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">ValidationFailure</span><span class="s4">(</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;The DNSSEC signature is invalid.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">DeniedByPolicy</span><span class="s4">(</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Denied by DNSSEC policy.&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">ExceptionWrapper</span><span class="s4">:</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">exception_class</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">exception_class </span><span class="s4">= </span><span class="s1">exception_class</span>
+
+    <span class="s3">def </span><span class="s1">__enter__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">self</span>
+
+    <span class="s3">def </span><span class="s1">__exit__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">exc_type</span><span class="s4">, </span><span class="s1">exc_val</span><span class="s4">, </span><span class="s1">exc_tb</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">exc_type </span><span class="s3">is not None and not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">exc_val</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">exception_class</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">self</span><span class="s4">.</span><span class="s1">exception_class</span><span class="s4">(</span><span class="s1">str</span><span class="s4">(</span><span class="s1">exc_val</span><span class="s4">)) </span><span class="s3">from </span><span class="s1">exc_val</span>
+        <span class="s3">return False</span>
+</pre>
+</body>
+</html>

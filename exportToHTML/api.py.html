@@ -1,0 +1,179 @@
+<html>
+<head>
+<title>api.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #5f826b; font-style: italic;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #7a7e85;}
+.s5 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+api.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+requests.api 
+~~~~~~~~~~~~ 
+ 
+This module implements the Requests API. 
+ 
+:copyright: (c) 2012 by Kenneth Reitz. 
+:license: Apache2, see LICENSE for more details. 
+&quot;&quot;&quot;</span>
+
+<span class="s2">from </span><span class="s3">. </span><span class="s2">import </span><span class="s1">sessions</span>
+
+
+<span class="s2">def </span><span class="s1">request</span><span class="s3">(</span><span class="s1">method</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Constructs and sends a :class:`Request &lt;Request&gt;`. 
+ 
+    :param method: method for the new :class:`Request` object: ``GET``, ``OPTIONS``, ``HEAD``, ``POST``, ``PUT``, ``PATCH``, or ``DELETE``. 
+    :param url: URL for the new :class:`Request` object. 
+    :param params: (optional) Dictionary, list of tuples or bytes to send 
+        in the query string for the :class:`Request`. 
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like 
+        object to send in the body of the :class:`Request`. 
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`. 
+    :param headers: (optional) Dictionary of HTTP Headers to send with the :class:`Request`. 
+    :param cookies: (optional) Dict or CookieJar object to send with the :class:`Request`. 
+    :param files: (optional) Dictionary of ``'name': file-like-objects`` (or ``{'name': file-tuple}``) for multipart encoding upload. 
+        ``file-tuple`` can be a 2-tuple ``('filename', fileobj)``, 3-tuple ``('filename', fileobj, 'content_type')`` 
+        or a 4-tuple ``('filename', fileobj, 'content_type', custom_headers)``, where ``'content_type'`` is a string 
+        defining the content type of the given file and ``custom_headers`` a dict-like object containing additional headers 
+        to add for the file. 
+    :param auth: (optional) Auth tuple to enable Basic/Digest/Custom HTTP Auth. 
+    :param timeout: (optional) How many seconds to wait for the server to send data 
+        before giving up, as a float, or a :ref:`(connect timeout, read 
+        timeout) &lt;timeouts&gt;` tuple. 
+    :type timeout: float or tuple 
+    :param allow_redirects: (optional) Boolean. Enable/disable GET/OPTIONS/POST/PUT/PATCH/DELETE/HEAD redirection. Defaults to ``True``. 
+    :type allow_redirects: bool 
+    :param proxies: (optional) Dictionary mapping protocol to the URL of the proxy. 
+    :param verify: (optional) Either a boolean, in which case it controls whether we verify 
+            the server's TLS certificate, or a string, in which case it must be a path 
+            to a CA bundle to use. Defaults to ``True``. 
+    :param stream: (optional) if ``False``, the response content will be immediately downloaded. 
+    :param cert: (optional) if String, path to ssl client cert file (.pem). If Tuple, ('cert', 'key') pair. 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+ 
+    Usage:: 
+ 
+      &gt;&gt;&gt; import requests 
+      &gt;&gt;&gt; req = requests.request('GET', 'https://httpbin.org/get') 
+      &gt;&gt;&gt; req 
+      &lt;Response [200]&gt; 
+    &quot;&quot;&quot;</span>
+
+    <span class="s4"># By using the 'with' statement we are sure the session is closed, thus we</span>
+    <span class="s4"># avoid leaving sockets open which can trigger a ResourceWarning in some</span>
+    <span class="s4"># cases, and look like a memory leak in others.</span>
+    <span class="s2">with </span><span class="s1">sessions</span><span class="s3">.</span><span class="s1">Session</span><span class="s3">() </span><span class="s2">as </span><span class="s1">session</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">session</span><span class="s3">.</span><span class="s1">request</span><span class="s3">(</span><span class="s1">method</span><span class="s3">=</span><span class="s1">method</span><span class="s3">, </span><span class="s1">url</span><span class="s3">=</span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">get</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">params</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Sends a GET request. 
+ 
+    :param url: URL for the new :class:`Request` object. 
+    :param params: (optional) Dictionary, list of tuples or bytes to send 
+        in the query string for the :class:`Request`. 
+    :param \*\*kwargs: Optional arguments that ``request`` takes. 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">request</span><span class="s3">(</span><span class="s5">&quot;get&quot;</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, </span><span class="s1">params</span><span class="s3">=</span><span class="s1">params</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">options</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Sends an OPTIONS request. 
+ 
+    :param url: URL for the new :class:`Request` object. 
+    :param \*\*kwargs: Optional arguments that ``request`` takes. 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">request</span><span class="s3">(</span><span class="s5">&quot;options&quot;</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">head</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Sends a HEAD request. 
+ 
+    :param url: URL for the new :class:`Request` object. 
+    :param \*\*kwargs: Optional arguments that ``request`` takes. If 
+        `allow_redirects` is not provided, it will be set to `False` (as 
+        opposed to the default :meth:`request` behavior). 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">kwargs</span><span class="s3">.</span><span class="s1">setdefault</span><span class="s3">(</span><span class="s5">&quot;allow_redirects&quot;</span><span class="s3">, </span><span class="s2">False</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">request</span><span class="s3">(</span><span class="s5">&quot;head&quot;</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">post</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">data</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">json</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Sends a POST request. 
+ 
+    :param url: URL for the new :class:`Request` object. 
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like 
+        object to send in the body of the :class:`Request`. 
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`. 
+    :param \*\*kwargs: Optional arguments that ``request`` takes. 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">request</span><span class="s3">(</span><span class="s5">&quot;post&quot;</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, </span><span class="s1">data</span><span class="s3">=</span><span class="s1">data</span><span class="s3">, </span><span class="s1">json</span><span class="s3">=</span><span class="s1">json</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">put</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">data</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Sends a PUT request. 
+ 
+    :param url: URL for the new :class:`Request` object. 
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like 
+        object to send in the body of the :class:`Request`. 
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`. 
+    :param \*\*kwargs: Optional arguments that ``request`` takes. 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">request</span><span class="s3">(</span><span class="s5">&quot;put&quot;</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, </span><span class="s1">data</span><span class="s3">=</span><span class="s1">data</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">patch</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">data</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Sends a PATCH request. 
+ 
+    :param url: URL for the new :class:`Request` object. 
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like 
+        object to send in the body of the :class:`Request`. 
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`. 
+    :param \*\*kwargs: Optional arguments that ``request`` takes. 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">request</span><span class="s3">(</span><span class="s5">&quot;patch&quot;</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, </span><span class="s1">data</span><span class="s3">=</span><span class="s1">data</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">delete</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Sends a DELETE request. 
+ 
+    :param url: URL for the new :class:`Request` object. 
+    :param \*\*kwargs: Optional arguments that ``request`` takes. 
+    :return: :class:`Response &lt;Response&gt;` object 
+    :rtype: requests.Response 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">request</span><span class="s3">(</span><span class="s5">&quot;delete&quot;</span><span class="s3">, </span><span class="s1">url</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

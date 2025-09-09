@@ -1,0 +1,384 @@
+<html>
+<head>
+<title>nameserver.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+.s4 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+nameserver.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">typing </span><span class="s0">import </span><span class="s1">Optional</span><span class="s2">, </span><span class="s1">Union</span>
+<span class="s0">from </span><span class="s1">urllib</span><span class="s2">.</span><span class="s1">parse </span><span class="s0">import </span><span class="s1">urlparse</span>
+
+<span class="s0">import </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncbackend</span>
+<span class="s0">import </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncquery</span>
+<span class="s0">import </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">inet</span>
+<span class="s0">import </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span>
+<span class="s0">import </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span>
+
+
+<span class="s0">class </span><span class="s1">Nameserver</span><span class="s2">:</span>
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s0">pass</span>
+
+    <span class="s0">def </span><span class="s1">__str__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s0">def </span><span class="s1">kind</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; str</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s0">def </span><span class="s1">is_always_max_size</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; bool</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s0">def </span><span class="s1">answer_nameserver</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; str</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s0">def </span><span class="s1">answer_port</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; int</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s0">def </span><span class="s1">query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s0">async def </span><span class="s1">async_query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool</span><span class="s2">,</span>
+        <span class="s1">backend</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncbackend</span><span class="s2">.</span><span class="s1">Backend</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+
+<span class="s0">class </span><span class="s1">AddressAndPortNameserver</span><span class="s2">(</span><span class="s1">Nameserver</span><span class="s2">):</span>
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">address</span><span class="s2">: </span><span class="s1">str</span><span class="s2">, </span><span class="s1">port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">):</span>
+        <span class="s1">super</span><span class="s2">().</span><span class="s1">__init__</span><span class="s2">()</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">address </span><span class="s2">= </span><span class="s1">address</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">port </span><span class="s2">= </span><span class="s1">port</span>
+
+    <span class="s0">def </span><span class="s1">kind</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; str</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s0">def </span><span class="s1">is_always_max_size</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; bool</span><span class="s2">:</span>
+        <span class="s0">return False</span>
+
+    <span class="s0">def </span><span class="s1">__str__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s1">ns_kind </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">kind</span><span class="s2">()</span>
+        <span class="s0">return </span><span class="s3">f&quot;</span><span class="s0">{</span><span class="s1">ns_kind</span><span class="s0">}</span><span class="s3">:</span><span class="s0">{</span><span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s0">}</span><span class="s3">@</span><span class="s0">{</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s0">}</span><span class="s3">&quot;</span>
+
+    <span class="s0">def </span><span class="s1">answer_nameserver</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; str</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">self</span><span class="s2">.</span><span class="s1">address</span>
+
+    <span class="s0">def </span><span class="s1">answer_port</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; int</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span>
+
+
+<span class="s0">class </span><span class="s1">Do53Nameserver</span><span class="s2">(</span><span class="s1">AddressAndPortNameserver</span><span class="s2">):</span>
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">address</span><span class="s2">: </span><span class="s1">str</span><span class="s2">, </span><span class="s1">port</span><span class="s2">: </span><span class="s1">int </span><span class="s2">= </span><span class="s4">53</span><span class="s2">):</span>
+        <span class="s1">super</span><span class="s2">().</span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">address</span><span class="s2">, </span><span class="s1">port</span><span class="s2">)</span>
+
+    <span class="s0">def </span><span class="s1">kind</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s0">return </span><span class="s3">&quot;Do53&quot;</span>
+
+    <span class="s0">def </span><span class="s1">query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">if </span><span class="s1">max_size</span><span class="s2">:</span>
+            <span class="s1">response </span><span class="s2">= </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span><span class="s2">.</span><span class="s1">tcp</span><span class="s2">(</span>
+                <span class="s1">request</span><span class="s2">,</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+                <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+                <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+                <span class="s1">source</span><span class="s2">=</span><span class="s1">source</span><span class="s2">,</span>
+                <span class="s1">source_port</span><span class="s2">=</span><span class="s1">source_port</span><span class="s2">,</span>
+                <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+                <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s2">)</span>
+        <span class="s0">else</span><span class="s2">:</span>
+            <span class="s1">response </span><span class="s2">= </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span><span class="s2">.</span><span class="s1">udp</span><span class="s2">(</span>
+                <span class="s1">request</span><span class="s2">,</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+                <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+                <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+                <span class="s1">source</span><span class="s2">=</span><span class="s1">source</span><span class="s2">,</span>
+                <span class="s1">source_port</span><span class="s2">=</span><span class="s1">source_port</span><span class="s2">,</span>
+                <span class="s1">raise_on_truncation</span><span class="s2">=</span><span class="s0">True</span><span class="s2">,</span>
+                <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+                <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+                <span class="s1">ignore_errors</span><span class="s2">=</span><span class="s0">True</span><span class="s2">,</span>
+                <span class="s1">ignore_unexpected</span><span class="s2">=</span><span class="s0">True</span><span class="s2">,</span>
+            <span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">response</span>
+
+    <span class="s0">async def </span><span class="s1">async_query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool</span><span class="s2">,</span>
+        <span class="s1">backend</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncbackend</span><span class="s2">.</span><span class="s1">Backend</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">if </span><span class="s1">max_size</span><span class="s2">:</span>
+            <span class="s1">response </span><span class="s2">= </span><span class="s0">await </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncquery</span><span class="s2">.</span><span class="s1">tcp</span><span class="s2">(</span>
+                <span class="s1">request</span><span class="s2">,</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+                <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+                <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+                <span class="s1">source</span><span class="s2">=</span><span class="s1">source</span><span class="s2">,</span>
+                <span class="s1">source_port</span><span class="s2">=</span><span class="s1">source_port</span><span class="s2">,</span>
+                <span class="s1">backend</span><span class="s2">=</span><span class="s1">backend</span><span class="s2">,</span>
+                <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+                <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s2">)</span>
+        <span class="s0">else</span><span class="s2">:</span>
+            <span class="s1">response </span><span class="s2">= </span><span class="s0">await </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncquery</span><span class="s2">.</span><span class="s1">udp</span><span class="s2">(</span>
+                <span class="s1">request</span><span class="s2">,</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+                <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+                <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+                <span class="s1">source</span><span class="s2">=</span><span class="s1">source</span><span class="s2">,</span>
+                <span class="s1">source_port</span><span class="s2">=</span><span class="s1">source_port</span><span class="s2">,</span>
+                <span class="s1">raise_on_truncation</span><span class="s2">=</span><span class="s0">True</span><span class="s2">,</span>
+                <span class="s1">backend</span><span class="s2">=</span><span class="s1">backend</span><span class="s2">,</span>
+                <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+                <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+                <span class="s1">ignore_errors</span><span class="s2">=</span><span class="s0">True</span><span class="s2">,</span>
+                <span class="s1">ignore_unexpected</span><span class="s2">=</span><span class="s0">True</span><span class="s2">,</span>
+            <span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">response</span>
+
+
+<span class="s0">class </span><span class="s1">DoHNameserver</span><span class="s2">(</span><span class="s1">Nameserver</span><span class="s2">):</span>
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">url</span><span class="s2">: </span><span class="s1">str</span><span class="s2">,</span>
+        <span class="s1">bootstrap_address</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">] = </span><span class="s0">None</span><span class="s2">,</span>
+        <span class="s1">verify</span><span class="s2">: </span><span class="s1">Union</span><span class="s2">[</span><span class="s1">bool</span><span class="s2">, </span><span class="s1">str</span><span class="s2">] = </span><span class="s0">True</span><span class="s2">,</span>
+        <span class="s1">want_get</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">http_version</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span><span class="s2">.</span><span class="s1">HTTPVersion </span><span class="s2">= </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span><span class="s2">.</span><span class="s1">HTTPVersion</span><span class="s2">.</span><span class="s1">DEFAULT</span><span class="s2">,</span>
+    <span class="s2">):</span>
+        <span class="s1">super</span><span class="s2">().</span><span class="s1">__init__</span><span class="s2">()</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">url </span><span class="s2">= </span><span class="s1">url</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">bootstrap_address </span><span class="s2">= </span><span class="s1">bootstrap_address</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">verify </span><span class="s2">= </span><span class="s1">verify</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">want_get </span><span class="s2">= </span><span class="s1">want_get</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">http_version </span><span class="s2">= </span><span class="s1">http_version</span>
+
+    <span class="s0">def </span><span class="s1">kind</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s0">return </span><span class="s3">&quot;DoH&quot;</span>
+
+    <span class="s0">def </span><span class="s1">is_always_max_size</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; bool</span><span class="s2">:</span>
+        <span class="s0">return True</span>
+
+    <span class="s0">def </span><span class="s1">__str__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s0">return </span><span class="s1">self</span><span class="s2">.</span><span class="s1">url</span>
+
+    <span class="s0">def </span><span class="s1">answer_nameserver</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; str</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">self</span><span class="s2">.</span><span class="s1">url</span>
+
+    <span class="s0">def </span><span class="s1">answer_port</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; int</span><span class="s2">:</span>
+        <span class="s1">port </span><span class="s2">= </span><span class="s1">urlparse</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">url</span><span class="s2">).</span><span class="s1">port</span>
+        <span class="s0">if </span><span class="s1">port </span><span class="s0">is None</span><span class="s2">:</span>
+            <span class="s1">port </span><span class="s2">= </span><span class="s4">443</span>
+        <span class="s0">return </span><span class="s1">port</span>
+
+    <span class="s0">def </span><span class="s1">query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span><span class="s2">.</span><span class="s1">https</span><span class="s2">(</span>
+            <span class="s1">request</span><span class="s2">,</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">url</span><span class="s2">,</span>
+            <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+            <span class="s1">source</span><span class="s2">=</span><span class="s1">source</span><span class="s2">,</span>
+            <span class="s1">source_port</span><span class="s2">=</span><span class="s1">source_port</span><span class="s2">,</span>
+            <span class="s1">bootstrap_address</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">bootstrap_address</span><span class="s2">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+            <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s1">verify</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">,</span>
+            <span class="s1">post</span><span class="s2">=(</span><span class="s0">not </span><span class="s1">self</span><span class="s2">.</span><span class="s1">want_get</span><span class="s2">),</span>
+            <span class="s1">http_version</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">http_version</span><span class="s2">,</span>
+        <span class="s2">)</span>
+
+    <span class="s0">async def </span><span class="s1">async_query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool</span><span class="s2">,</span>
+        <span class="s1">backend</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncbackend</span><span class="s2">.</span><span class="s1">Backend</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">return await </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncquery</span><span class="s2">.</span><span class="s1">https</span><span class="s2">(</span>
+            <span class="s1">request</span><span class="s2">,</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">url</span><span class="s2">,</span>
+            <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+            <span class="s1">source</span><span class="s2">=</span><span class="s1">source</span><span class="s2">,</span>
+            <span class="s1">source_port</span><span class="s2">=</span><span class="s1">source_port</span><span class="s2">,</span>
+            <span class="s1">bootstrap_address</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">bootstrap_address</span><span class="s2">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+            <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s1">verify</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">,</span>
+            <span class="s1">post</span><span class="s2">=(</span><span class="s0">not </span><span class="s1">self</span><span class="s2">.</span><span class="s1">want_get</span><span class="s2">),</span>
+            <span class="s1">http_version</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">http_version</span><span class="s2">,</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">DoTNameserver</span><span class="s2">(</span><span class="s1">AddressAndPortNameserver</span><span class="s2">):</span>
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">address</span><span class="s2">: </span><span class="s1">str</span><span class="s2">,</span>
+        <span class="s1">port</span><span class="s2">: </span><span class="s1">int </span><span class="s2">= </span><span class="s4">853</span><span class="s2">,</span>
+        <span class="s1">hostname</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">] = </span><span class="s0">None</span><span class="s2">,</span>
+        <span class="s1">verify</span><span class="s2">: </span><span class="s1">Union</span><span class="s2">[</span><span class="s1">bool</span><span class="s2">, </span><span class="s1">str</span><span class="s2">] = </span><span class="s0">True</span><span class="s2">,</span>
+    <span class="s2">):</span>
+        <span class="s1">super</span><span class="s2">().</span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">address</span><span class="s2">, </span><span class="s1">port</span><span class="s2">)</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">hostname </span><span class="s2">= </span><span class="s1">hostname</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">verify </span><span class="s2">= </span><span class="s1">verify</span>
+
+    <span class="s0">def </span><span class="s1">kind</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s0">return </span><span class="s3">&quot;DoT&quot;</span>
+
+    <span class="s0">def </span><span class="s1">query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span><span class="s2">.</span><span class="s1">tls</span><span class="s2">(</span>
+            <span class="s1">request</span><span class="s2">,</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+            <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+            <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+            <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s1">server_hostname</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">hostname</span><span class="s2">,</span>
+            <span class="s1">verify</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">,</span>
+        <span class="s2">)</span>
+
+    <span class="s0">async def </span><span class="s1">async_query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool</span><span class="s2">,</span>
+        <span class="s1">backend</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncbackend</span><span class="s2">.</span><span class="s1">Backend</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">return await </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncquery</span><span class="s2">.</span><span class="s1">tls</span><span class="s2">(</span>
+            <span class="s1">request</span><span class="s2">,</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+            <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+            <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+            <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s1">server_hostname</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">hostname</span><span class="s2">,</span>
+            <span class="s1">verify</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">,</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">DoQNameserver</span><span class="s2">(</span><span class="s1">AddressAndPortNameserver</span><span class="s2">):</span>
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">address</span><span class="s2">: </span><span class="s1">str</span><span class="s2">,</span>
+        <span class="s1">port</span><span class="s2">: </span><span class="s1">int </span><span class="s2">= </span><span class="s4">853</span><span class="s2">,</span>
+        <span class="s1">verify</span><span class="s2">: </span><span class="s1">Union</span><span class="s2">[</span><span class="s1">bool</span><span class="s2">, </span><span class="s1">str</span><span class="s2">] = </span><span class="s0">True</span><span class="s2">,</span>
+        <span class="s1">server_hostname</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">] = </span><span class="s0">None</span><span class="s2">,</span>
+    <span class="s2">):</span>
+        <span class="s1">super</span><span class="s2">().</span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">address</span><span class="s2">, </span><span class="s1">port</span><span class="s2">)</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">verify </span><span class="s2">= </span><span class="s1">verify</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">server_hostname </span><span class="s2">= </span><span class="s1">server_hostname</span>
+
+    <span class="s0">def </span><span class="s1">kind</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s0">return </span><span class="s3">&quot;DoQ&quot;</span>
+
+    <span class="s0">def </span><span class="s1">query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">query</span><span class="s2">.</span><span class="s1">quic</span><span class="s2">(</span>
+            <span class="s1">request</span><span class="s2">,</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+            <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+            <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+            <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s1">verify</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">,</span>
+            <span class="s1">server_hostname</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">server_hostname</span><span class="s2">,</span>
+        <span class="s2">)</span>
+
+    <span class="s0">async def </span><span class="s1">async_query</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">request</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">QueryMessage</span><span class="s2">,</span>
+        <span class="s1">timeout</span><span class="s2">: </span><span class="s1">float</span><span class="s2">,</span>
+        <span class="s1">source</span><span class="s2">: </span><span class="s1">Optional</span><span class="s2">[</span><span class="s1">str</span><span class="s2">],</span>
+        <span class="s1">source_port</span><span class="s2">: </span><span class="s1">int</span><span class="s2">,</span>
+        <span class="s1">max_size</span><span class="s2">: </span><span class="s1">bool</span><span class="s2">,</span>
+        <span class="s1">backend</span><span class="s2">: </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncbackend</span><span class="s2">.</span><span class="s1">Backend</span><span class="s2">,</span>
+        <span class="s1">one_rr_per_rrset</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">ignore_trailing</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; dns</span><span class="s2">.</span><span class="s1">message</span><span class="s2">.</span><span class="s1">Message</span><span class="s2">:</span>
+        <span class="s0">return await </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">asyncquery</span><span class="s2">.</span><span class="s1">quic</span><span class="s2">(</span>
+            <span class="s1">request</span><span class="s2">,</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">address</span><span class="s2">,</span>
+            <span class="s1">port</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">port</span><span class="s2">,</span>
+            <span class="s1">timeout</span><span class="s2">=</span><span class="s1">timeout</span><span class="s2">,</span>
+            <span class="s1">one_rr_per_rrset</span><span class="s2">=</span><span class="s1">one_rr_per_rrset</span><span class="s2">,</span>
+            <span class="s1">ignore_trailing</span><span class="s2">=</span><span class="s1">ignore_trailing</span><span class="s2">,</span>
+            <span class="s1">verify</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">,</span>
+            <span class="s1">server_hostname</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">server_hostname</span><span class="s2">,</span>
+        <span class="s2">)</span>
+</pre>
+</body>
+</html>

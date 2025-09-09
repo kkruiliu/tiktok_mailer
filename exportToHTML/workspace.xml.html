@@ -1,0 +1,161 @@
+<html>
+<head>
+<title>workspace.xml</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #d5b778;}
+.s1 { color: #bcbec4;}
+.s2 { color: #6aab73;}
+.s3 { color: #bcbec4;}
+.s4 { color: #56a8f5;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+workspace.xml</font>
+</center></td></tr></table>
+<pre><span class="s0">&lt;?</span><span class="s1">xml version</span><span class="s2">=&quot;1.0&quot; </span><span class="s1">encoding</span><span class="s2">=&quot;UTF-8&quot;</span><span class="s0">?&gt;</span>
+<span class="s0">&lt;project </span><span class="s1">version</span><span class="s2">=&quot;4&quot;</span><span class="s0">&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;AutoImportSettings&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;autoReloadType&quot; </span><span class="s1">value</span><span class="s2">=&quot;SELECTIVE&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;ChangeListManager&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;list </span><span class="s1">default</span><span class="s2">=&quot;true&quot; </span><span class="s1">id</span><span class="s2">=&quot;11da69e5-ba3c-4375-a8c1-c507aecb3871&quot; </span><span class="s1">name</span><span class="s2">=&quot;Changes&quot; </span><span class="s1">comment</span><span class="s2">=&quot;init&quot;</span><span class="s0">&gt;</span>
+      <span class="s0">&lt;change </span><span class="s1">beforePath</span><span class="s2">=&quot;$PROJECT_DIR$/.idea/workspace.xml&quot; </span><span class="s1">beforeDir</span><span class="s2">=&quot;false&quot; </span><span class="s1">afterPath</span><span class="s2">=&quot;$PROJECT_DIR$/.idea/workspace.xml&quot; </span><span class="s1">afterDir</span><span class="s2">=&quot;false&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;/list&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;SHOW_DIALOG&quot; </span><span class="s1">value</span><span class="s2">=&quot;false&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;HIGHLIGHT_CONFLICTS&quot; </span><span class="s1">value</span><span class="s2">=&quot;true&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;HIGHLIGHT_NON_ACTIVE_CHANGELIST&quot; </span><span class="s1">value</span><span class="s2">=&quot;false&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;LAST_RESOLUTION&quot; </span><span class="s1">value</span><span class="s2">=&quot;IGNORE&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;FileTemplateManagerImpl&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;RECENT_TEMPLATES&quot;</span><span class="s0">&gt;</span>
+      <span class="s0">&lt;list&gt;</span>
+        <span class="s0">&lt;option </span><span class="s1">value</span><span class="s2">=&quot;Python Script&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;/list&gt;</span>
+    <span class="s0">&lt;/option&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;FlaskConsoleOptions&quot; </span><span class="s1">custom-start-script</span><span class="s2">=&quot;import sys; print('Python %s on %s' % (sys.version, sys.platform)); sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])</span><span class="s4">&amp;#10;</span><span class="s2">from flask.cli import ScriptInfo, NoAppException</span><span class="s4">&amp;#10;</span><span class="s2">for module in [</span><span class="s4">&amp;quot;</span><span class="s2">main.py</span><span class="s4">&amp;quot;</span><span class="s2">, </span><span class="s4">&amp;quot;</span><span class="s2">wsgi.py</span><span class="s4">&amp;quot;</span><span class="s2">, </span><span class="s4">&amp;quot;</span><span class="s2">app.py</span><span class="s4">&amp;quot;</span><span class="s2">]:</span><span class="s4">&amp;#10;    </span><span class="s2">try: locals().update(ScriptInfo(app_import_path=module, create_app=None).load_app().make_shell_context()); print(</span><span class="s4">&amp;quot;</span><span class="s2">\nFlask App: %s</span><span class="s4">&amp;quot; </span><span class="s2">% app.import_name); break</span><span class="s4">&amp;#10;    </span><span class="s2">except NoAppException: pass&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;envs&gt;</span>
+      <span class="s0">&lt;env </span><span class="s1">key</span><span class="s2">=&quot;FLASK_APP&quot; </span><span class="s1">value</span><span class="s2">=&quot;app&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;/envs&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;myCustomStartScript&quot; </span><span class="s1">value</span><span class="s2">=&quot;import sys; print('Python %s on %s' % (sys.version, sys.platform)); sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])</span><span class="s4">&amp;#10;</span><span class="s2">from flask.cli import ScriptInfo, NoAppException</span><span class="s4">&amp;#10;</span><span class="s2">for module in [</span><span class="s4">&amp;quot;</span><span class="s2">main.py</span><span class="s4">&amp;quot;</span><span class="s2">, </span><span class="s4">&amp;quot;</span><span class="s2">wsgi.py</span><span class="s4">&amp;quot;</span><span class="s2">, </span><span class="s4">&amp;quot;</span><span class="s2">app.py</span><span class="s4">&amp;quot;</span><span class="s2">]:</span><span class="s4">&amp;#10;    </span><span class="s2">try: locals().update(ScriptInfo(app_import_path=module, create_app=None).load_app().make_shell_context()); print(</span><span class="s4">&amp;quot;</span><span class="s2">\nFlask App: %s</span><span class="s4">&amp;quot; </span><span class="s2">% app.import_name); break</span><span class="s4">&amp;#10;    </span><span class="s2">except NoAppException: pass&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;myEnvs&quot;</span><span class="s0">&gt;</span>
+      <span class="s0">&lt;map&gt;</span>
+        <span class="s0">&lt;entry </span><span class="s1">key</span><span class="s2">=&quot;FLASK_APP&quot; </span><span class="s1">value</span><span class="s2">=&quot;app&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;/map&gt;</span>
+    <span class="s0">&lt;/option&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;Git.Settings&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;RECENT_GIT_ROOT_PATH&quot; </span><span class="s1">value</span><span class="s2">=&quot;$PROJECT_DIR$/../tiktok_mailer&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;ROOT_SYNC&quot; </span><span class="s1">value</span><span class="s2">=&quot;SYNC&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;GitHubPullRequestSearchHistory&quot;</span><span class="s0">&gt;</span><span class="s3">{</span>
+  <span class="s4">&amp;quot;</span><span class="s3">lastFilter</span><span class="s4">&amp;quot;</span><span class="s3">: {</span>
+    <span class="s4">&amp;quot;</span><span class="s3">state</span><span class="s4">&amp;quot;</span><span class="s3">: </span><span class="s4">&amp;quot;</span><span class="s3">OPEN</span><span class="s4">&amp;quot;</span><span class="s3">,</span>
+    <span class="s4">&amp;quot;</span><span class="s3">assignee</span><span class="s4">&amp;quot;</span><span class="s3">: </span><span class="s4">&amp;quot;</span><span class="s3">kkruiliu</span><span class="s4">&amp;quot;</span>
+  <span class="s3">}</span>
+<span class="s3">}</span><span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;GithubPullRequestsUISettings&quot;</span><span class="s0">&gt;</span><span class="s3">{</span>
+  <span class="s4">&amp;quot;</span><span class="s3">selectedUrlAndAccountId</span><span class="s4">&amp;quot;</span><span class="s3">: {</span>
+    <span class="s4">&amp;quot;</span><span class="s3">url</span><span class="s4">&amp;quot;</span><span class="s3">: </span><span class="s4">&amp;quot;</span><span class="s3">https://github.com/kkruiliu/tiktok_mailer.git</span><span class="s4">&amp;quot;</span><span class="s3">,</span>
+    <span class="s4">&amp;quot;</span><span class="s3">accountId</span><span class="s4">&amp;quot;</span><span class="s3">: </span><span class="s4">&amp;quot;</span><span class="s3">de62a38c-b219-484b-babe-b534850e3e2c</span><span class="s4">&amp;quot;</span>
+  <span class="s3">}</span>
+<span class="s3">}</span><span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;ProjectColorInfo&quot;</span><span class="s0">&gt;</span><span class="s3">{</span>
+  <span class="s4">&amp;quot;</span><span class="s3">associatedIndex</span><span class="s4">&amp;quot;</span><span class="s3">: 4</span>
+<span class="s3">}</span><span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;ProjectId&quot; </span><span class="s1">id</span><span class="s2">=&quot;2zomcqvPFuE7f1JFxHgd3ImCTKC&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;ProjectViewState&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;hideEmptyMiddlePackages&quot; </span><span class="s1">value</span><span class="s2">=&quot;true&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;showLibraryContents&quot; </span><span class="s1">value</span><span class="s2">=&quot;true&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;PropertiesComponent&quot;</span><span class="s0">&gt;</span><span class="s3">&lt;![CDATA[{ 
+  &quot;keyToString&quot;: { 
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;, 
+    &quot;Python.fix.executor&quot;: &quot;Run&quot;, 
+    &quot;Python.main.executor&quot;: &quot;Run&quot;, 
+    &quot;Python.test_mongo.executor&quot;: &quot;Run&quot;, 
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;, 
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager&quot;: &quot;true&quot;, 
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;, 
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;, 
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;, 
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;, 
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;, 
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;, 
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;, 
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot; 
+  } 
+}]]&gt;</span><span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;SharedIndexes&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;attachedChunks&gt;</span>
+      <span class="s0">&lt;set&gt;</span>
+        <span class="s0">&lt;option </span><span class="s1">value</span><span class="s2">=&quot;bundled-js-predefined-d6986cc7102b-09060db00ec0-JavaScript-PY-251.26927.90&quot; </span><span class="s0">/&gt;</span>
+        <span class="s0">&lt;option </span><span class="s1">value</span><span class="s2">=&quot;bundled-python-sdk-41e8cd69c857-64d779b69b7a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.26927.90&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;/set&gt;</span>
+    <span class="s0">&lt;/attachedChunks&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;TaskManager&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;task </span><span class="s1">active</span><span class="s2">=&quot;true&quot; </span><span class="s1">id</span><span class="s2">=&quot;Default&quot; </span><span class="s1">summary</span><span class="s2">=&quot;Default task&quot;</span><span class="s0">&gt;</span>
+      <span class="s0">&lt;changelist </span><span class="s1">id</span><span class="s2">=&quot;11da69e5-ba3c-4375-a8c1-c507aecb3871&quot; </span><span class="s1">name</span><span class="s2">=&quot;Changes&quot; </span><span class="s1">comment</span><span class="s2">=&quot;&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;created&gt;</span><span class="s3">1752405881441</span><span class="s0">&lt;/created&gt;</span>
+      <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;number&quot; </span><span class="s1">value</span><span class="s2">=&quot;Default&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;presentableId&quot; </span><span class="s1">value</span><span class="s2">=&quot;Default&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;updated&gt;</span><span class="s3">1752405881441</span><span class="s0">&lt;/updated&gt;</span>
+      <span class="s0">&lt;workItem </span><span class="s1">from</span><span class="s2">=&quot;1752405882499&quot; </span><span class="s1">duration</span><span class="s2">=&quot;5759000&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;workItem </span><span class="s1">from</span><span class="s2">=&quot;1752414760583&quot; </span><span class="s1">duration</span><span class="s2">=&quot;9000&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;workItem </span><span class="s1">from</span><span class="s2">=&quot;1752414771237&quot; </span><span class="s1">duration</span><span class="s2">=&quot;11886000&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;/task&gt;</span>
+    <span class="s0">&lt;task </span><span class="s1">id</span><span class="s2">=&quot;LOCAL-00001&quot; </span><span class="s1">summary</span><span class="s2">=&quot;init&quot;</span><span class="s0">&gt;</span>
+      <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;closed&quot; </span><span class="s1">value</span><span class="s2">=&quot;true&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;created&gt;</span><span class="s3">1752431015760</span><span class="s0">&lt;/created&gt;</span>
+      <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;number&quot; </span><span class="s1">value</span><span class="s2">=&quot;00001&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;presentableId&quot; </span><span class="s1">value</span><span class="s2">=&quot;LOCAL-00001&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;project&quot; </span><span class="s1">value</span><span class="s2">=&quot;LOCAL&quot; </span><span class="s0">/&gt;</span>
+      <span class="s0">&lt;updated&gt;</span><span class="s3">1752431015760</span><span class="s0">&lt;/updated&gt;</span>
+    <span class="s0">&lt;/task&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;localTasksCounter&quot; </span><span class="s1">value</span><span class="s2">=&quot;2&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;servers /&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;TypeScriptGeneratedFilesManager&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;version&quot; </span><span class="s1">value</span><span class="s2">=&quot;3&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;Vcs.Log.Tabs.Properties&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;TAB_STATES&quot;</span><span class="s0">&gt;</span>
+      <span class="s0">&lt;map&gt;</span>
+        <span class="s0">&lt;entry </span><span class="s1">key</span><span class="s2">=&quot;MAIN&quot;</span><span class="s0">&gt;</span>
+          <span class="s0">&lt;value&gt;</span>
+            <span class="s0">&lt;State&gt;</span>
+              <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;FILTERS&quot;</span><span class="s0">&gt;</span>
+                <span class="s0">&lt;map&gt;</span>
+                  <span class="s0">&lt;entry </span><span class="s1">key</span><span class="s2">=&quot;branch&quot;</span><span class="s0">&gt;</span>
+                    <span class="s0">&lt;value&gt;</span>
+                      <span class="s0">&lt;list&gt;</span>
+                        <span class="s0">&lt;option </span><span class="s1">value</span><span class="s2">=&quot;main&quot; </span><span class="s0">/&gt;</span>
+                      <span class="s0">&lt;/list&gt;</span>
+                    <span class="s0">&lt;/value&gt;</span>
+                  <span class="s0">&lt;/entry&gt;</span>
+                <span class="s0">&lt;/map&gt;</span>
+              <span class="s0">&lt;/option&gt;</span>
+            <span class="s0">&lt;/State&gt;</span>
+          <span class="s0">&lt;/value&gt;</span>
+        <span class="s0">&lt;/entry&gt;</span>
+      <span class="s0">&lt;/map&gt;</span>
+    <span class="s0">&lt;/option&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;VcsManagerConfiguration&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;MESSAGE </span><span class="s1">value</span><span class="s2">=&quot;init&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;option </span><span class="s1">name</span><span class="s2">=&quot;LAST_COMMIT_MESSAGE&quot; </span><span class="s1">value</span><span class="s2">=&quot;init&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+  <span class="s0">&lt;component </span><span class="s1">name</span><span class="s2">=&quot;com.intellij.coverage.CoverageDataManagerImpl&quot;</span><span class="s0">&gt;</span>
+    <span class="s0">&lt;SUITE </span><span class="s1">FILE_PATH</span><span class="s2">=&quot;coverage/tiktok_mailer$main.coverage&quot; </span><span class="s1">NAME</span><span class="s2">=&quot;main Coverage Results&quot; </span><span class="s1">MODIFIED</span><span class="s2">=&quot;1752410974568&quot; </span><span class="s1">SOURCE_PROVIDER</span><span class="s2">=&quot;com.intellij.coverage.DefaultCoverageFileProvider&quot; </span><span class="s1">RUNNER</span><span class="s2">=&quot;coverage.py&quot; </span><span class="s1">COVERAGE_BY_TEST_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">COVERAGE_TRACING_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">WORKING_DIRECTORY</span><span class="s2">=&quot;$PROJECT_DIR$/../tiktok_mailer&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;SUITE </span><span class="s1">FILE_PATH</span><span class="s2">=&quot;coverage/PythonProject$test_mongo.coverage&quot; </span><span class="s1">NAME</span><span class="s2">=&quot;test_mongo Coverage Results&quot; </span><span class="s1">MODIFIED</span><span class="s2">=&quot;1752427765721&quot; </span><span class="s1">SOURCE_PROVIDER</span><span class="s2">=&quot;com.intellij.coverage.DefaultCoverageFileProvider&quot; </span><span class="s1">RUNNER</span><span class="s2">=&quot;coverage.py&quot; </span><span class="s1">COVERAGE_BY_TEST_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">COVERAGE_TRACING_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">WORKING_DIRECTORY</span><span class="s2">=&quot;$PROJECT_DIR$/../tiktok_mailer&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;SUITE </span><span class="s1">FILE_PATH</span><span class="s2">=&quot;coverage/PythonProject$fix.coverage&quot; </span><span class="s1">NAME</span><span class="s2">=&quot;fix Coverage Results&quot; </span><span class="s1">MODIFIED</span><span class="s2">=&quot;1752425144830&quot; </span><span class="s1">SOURCE_PROVIDER</span><span class="s2">=&quot;com.intellij.coverage.DefaultCoverageFileProvider&quot; </span><span class="s1">RUNNER</span><span class="s2">=&quot;coverage.py&quot; </span><span class="s1">COVERAGE_BY_TEST_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">COVERAGE_TRACING_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">WORKING_DIRECTORY</span><span class="s2">=&quot;$PROJECT_DIR$/../tiktok_mailer&quot; </span><span class="s0">/&gt;</span>
+    <span class="s0">&lt;SUITE </span><span class="s1">FILE_PATH</span><span class="s2">=&quot;coverage/PythonProject$main.coverage&quot; </span><span class="s1">NAME</span><span class="s2">=&quot;main Coverage Results&quot; </span><span class="s1">MODIFIED</span><span class="s2">=&quot;1752430235522&quot; </span><span class="s1">SOURCE_PROVIDER</span><span class="s2">=&quot;com.intellij.coverage.DefaultCoverageFileProvider&quot; </span><span class="s1">RUNNER</span><span class="s2">=&quot;coverage.py&quot; </span><span class="s1">COVERAGE_BY_TEST_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">COVERAGE_TRACING_ENABLED</span><span class="s2">=&quot;false&quot; </span><span class="s1">WORKING_DIRECTORY</span><span class="s2">=&quot;$PROJECT_DIR$/../tiktok_mailer&quot; </span><span class="s0">/&gt;</span>
+  <span class="s0">&lt;/component&gt;</span>
+<span class="s0">&lt;/project&gt;</span></pre>
+</body>
+</html>

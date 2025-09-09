@@ -1,0 +1,382 @@
+<html>
+<head>
+<title>node.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+.s6 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+node.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2001-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;DNS nodes.  A node is a set of rdatasets.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">enum</span>
+<span class="s3">import </span><span class="s1">io</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Any</span><span class="s4">, </span><span class="s1">Dict</span><span class="s4">, </span><span class="s1">Optional</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">renderer</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rrset</span>
+
+<span class="s1">_cname_types </span><span class="s4">= {</span>
+    <span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">CNAME</span><span class="s4">,</span>
+<span class="s4">}</span>
+
+<span class="s0"># &quot;neutral&quot; types can coexist with a CNAME and thus are not &quot;other data&quot;</span>
+<span class="s1">_neutral_types </span><span class="s4">= {</span>
+    <span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NSEC</span><span class="s4">,  </span><span class="s0"># RFC 4035 section 2.5</span>
+    <span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NSEC3</span><span class="s4">,  </span><span class="s0"># This is not likely to happen, but not impossible!</span>
+    <span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">KEY</span><span class="s4">,  </span><span class="s0"># RFC 4035 section 2.5, RFC 3007</span>
+<span class="s4">}</span>
+
+
+<span class="s3">def </span><span class="s1">_matches_type_or_its_signature</span><span class="s4">(</span><span class="s1">rdtypes</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">):</span>
+    <span class="s3">return </span><span class="s1">rdtype </span><span class="s3">in </span><span class="s1">rdtypes </span><span class="s3">or </span><span class="s4">(</span><span class="s1">rdtype </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RRSIG </span><span class="s3">and </span><span class="s1">covers </span><span class="s3">in </span><span class="s1">rdtypes</span><span class="s4">)</span>
+
+
+<span class="s4">@</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">unique</span>
+<span class="s3">class </span><span class="s1">NodeKind</span><span class="s4">(</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">Enum</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Rdatasets in nodes&quot;&quot;&quot;</span>
+
+    <span class="s1">REGULAR </span><span class="s4">= </span><span class="s5">0  </span><span class="s0"># a.k.a &quot;other data&quot;</span>
+    <span class="s1">NEUTRAL </span><span class="s4">= </span><span class="s5">1</span>
+    <span class="s1">CNAME </span><span class="s4">= </span><span class="s5">2</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">classify</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s6">&quot;NodeKind&quot;</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">_matches_type_or_its_signature</span><span class="s4">(</span><span class="s1">_cname_types</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">CNAME</span>
+        <span class="s3">elif </span><span class="s1">_matches_type_or_its_signature</span><span class="s4">(</span><span class="s1">_neutral_types</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">):</span>
+            <span class="s3">return </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">NEUTRAL</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">REGULAR</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">classify_rdataset</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s6">&quot;NodeKind&quot;</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">.</span><span class="s1">classify</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">covers</span><span class="s4">)</span>
+
+
+<span class="s3">class </span><span class="s1">Node</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;A Node is a set of rdatasets. 
+ 
+    A node is either a CNAME node or an &quot;other data&quot; node.  A CNAME 
+    node contains only CNAME, KEY, NSEC, and NSEC3 rdatasets along with their 
+    covering RRSIG rdatasets.  An &quot;other data&quot; node contains any 
+    rdataset other than a CNAME or RRSIG(CNAME) rdataset.  When 
+    changes are made to a node, the CNAME or &quot;other data&quot; state is 
+    always consistent with the update, i.e. the most recent change 
+    wins.  For example, if you have a node which contains a CNAME 
+    rdataset, and then add an MX rdataset to it, then the CNAME 
+    rdataset will be deleted.  Likewise if you have a node containing 
+    an MX rdataset and add a CNAME rdataset, the MX rdataset will be 
+    deleted. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">__slots__ </span><span class="s4">= [</span><span class="s6">&quot;rdatasets&quot;</span><span class="s4">]</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s0"># the set of rdatasets, represented as a list.</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets </span><span class="s4">= []</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">Any</span><span class="s4">]) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Convert a node to text format. 
+ 
+        Each rdataset at the node is printed.  Any keyword arguments 
+        to this method are passed on to the rdataset's to_text() method. 
+ 
+        *name*, a ``dns.name.Name``, the owner name of the 
+        rdatasets. 
+ 
+        Returns a ``str``. 
+ 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">s </span><span class="s4">= </span><span class="s1">io</span><span class="s4">.</span><span class="s1">StringIO</span><span class="s4">()</span>
+        <span class="s3">for </span><span class="s1">rds </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">rds</span><span class="s4">) &gt; </span><span class="s5">0</span><span class="s4">:</span>
+                <span class="s1">s</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">rds</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">))  </span><span class="s0"># type: ignore[arg-type]</span>
+                <span class="s1">s</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s6">&quot;</span><span class="s3">\n</span><span class="s6">&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">s</span><span class="s4">.</span><span class="s1">getvalue</span><span class="s4">()[:-</span><span class="s5">1</span><span class="s4">]</span>
+
+    <span class="s3">def </span><span class="s1">__repr__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s6">&quot;&lt;DNS node &quot; </span><span class="s4">+ </span><span class="s1">str</span><span class="s4">(</span><span class="s1">id</span><span class="s4">(</span><span class="s1">self</span><span class="s4">)) + </span><span class="s6">&quot;&gt;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__eq__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s0">#</span>
+        <span class="s0"># This is inefficient.  Good thing we don't need to do it much.</span>
+        <span class="s0">#</span>
+        <span class="s3">for </span><span class="s1">rd </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">rd </span><span class="s3">not in </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+                <span class="s3">return False</span>
+        <span class="s3">for </span><span class="s1">rd </span><span class="s3">in </span><span class="s1">other</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">rd </span><span class="s3">not in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+                <span class="s3">return False</span>
+        <span class="s3">return True</span>
+
+    <span class="s3">def </span><span class="s1">__ne__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">return not </span><span class="s1">self</span><span class="s4">.</span><span class="s1">__eq__</span><span class="s4">(</span><span class="s1">other</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">__len__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">__iter__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">iter</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_append_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Append rdataset to the node with special handling for CNAME and 
+        other data conditions. 
+ 
+        Specifically, if the rdataset being appended has ``NodeKind.CNAME``, 
+        then all rdatasets other than KEY, NSEC, NSEC3, and their covering 
+        RRSIGs are deleted.  If the rdataset being appended has 
+        ``NodeKind.REGULAR`` then CNAME and RRSIG(CNAME) are deleted. 
+        &quot;&quot;&quot;</span>
+        <span class="s0"># Make having just one rdataset at the node fast.</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">) &gt; </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s1">kind </span><span class="s4">= </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">classify_rdataset</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">kind </span><span class="s4">== </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">CNAME</span><span class="s4">:</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets </span><span class="s4">= [</span>
+                    <span class="s1">rds</span>
+                    <span class="s3">for </span><span class="s1">rds </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span>
+                    <span class="s3">if </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">classify_rdataset</span><span class="s4">(</span><span class="s1">rds</span><span class="s4">) != </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">REGULAR</span>
+                <span class="s4">]</span>
+            <span class="s3">elif </span><span class="s1">kind </span><span class="s4">== </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">REGULAR</span><span class="s4">:</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets </span><span class="s4">= [</span>
+                    <span class="s1">rds</span>
+                    <span class="s3">for </span><span class="s1">rds </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span>
+                    <span class="s3">if </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">classify_rdataset</span><span class="s4">(</span><span class="s1">rds</span><span class="s4">) != </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">CNAME</span>
+                <span class="s4">]</span>
+            <span class="s0"># Otherwise the rdataset is NodeKind.NEUTRAL and we do not need to</span>
+            <span class="s0"># edit self.rdatasets.</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">find_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+        <span class="s1">create</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Find an rdataset matching the specified properties in the 
+        current node. 
+ 
+        *rdclass*, a ``dns.rdataclass.RdataClass``, the class of the rdataset. 
+ 
+        *rdtype*, a ``dns.rdatatype.RdataType``, the type of the rdataset. 
+ 
+        *covers*, a ``dns.rdatatype.RdataType``, the covered type. 
+        Usually this value is ``dns.rdatatype.NONE``, but if the 
+        rdtype is ``dns.rdatatype.SIG`` or ``dns.rdatatype.RRSIG``, 
+        then the covers value will be the rdata type the SIG/RRSIG 
+        covers.  The library treats the SIG and RRSIG types as if they 
+        were a family of types, e.g. RRSIG(A), RRSIG(NS), RRSIG(SOA). 
+        This makes RRSIGs much easier to work with than if RRSIGs 
+        covering different rdata types were aggregated into a single 
+        RRSIG rdataset. 
+ 
+        *create*, a ``bool``.  If True, create the rdataset if it is not found. 
+ 
+        Raises ``KeyError`` if an rdataset of the desired type and class does 
+        not exist and *create* is not ``True``. 
+ 
+        Returns a ``dns.rdataset.Rdataset``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">for </span><span class="s1">rds </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">rds</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">):</span>
+                <span class="s3">return </span><span class="s1">rds</span>
+        <span class="s3">if not </span><span class="s1">create</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">KeyError</span>
+        <span class="s1">rds </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_append_rdataset</span><span class="s4">(</span><span class="s1">rds</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">rds</span>
+
+    <span class="s3">def </span><span class="s1">get_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+        <span class="s1">create</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">]:</span>
+        <span class="s2">&quot;&quot;&quot;Get an rdataset matching the specified properties in the 
+        current node. 
+ 
+        None is returned if an rdataset of the specified type and 
+        class does not exist and *create* is not ``True``. 
+ 
+        *rdclass*, an ``int``, the class of the rdataset. 
+ 
+        *rdtype*, an ``int``, the type of the rdataset. 
+ 
+        *covers*, an ``int``, the covered type.  Usually this value is 
+        dns.rdatatype.NONE, but if the rdtype is dns.rdatatype.SIG or 
+        dns.rdatatype.RRSIG, then the covers value will be the rdata 
+        type the SIG/RRSIG covers.  The library treats the SIG and RRSIG 
+        types as if they were a family of 
+        types, e.g. RRSIG(A), RRSIG(NS), RRSIG(SOA).  This makes RRSIGs much 
+        easier to work with than if RRSIGs covering different rdata 
+        types were aggregated into a single RRSIG rdataset. 
+ 
+        *create*, a ``bool``.  If True, create the rdataset if it is not found. 
+ 
+        Returns a ``dns.rdataset.Rdataset`` or ``None``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">rds </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">find_rdataset</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">, </span><span class="s1">create</span><span class="s4">)</span>
+        <span class="s3">except </span><span class="s1">KeyError</span><span class="s4">:</span>
+            <span class="s1">rds </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s3">return </span><span class="s1">rds</span>
+
+    <span class="s3">def </span><span class="s1">delete_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Delete the rdataset matching the specified properties in the 
+        current node. 
+ 
+        If a matching rdataset does not exist, it is not an error. 
+ 
+        *rdclass*, an ``int``, the class of the rdataset. 
+ 
+        *rdtype*, an ``int``, the type of the rdataset. 
+ 
+        *covers*, an ``int``, the covered type. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">rds </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">get_rdataset</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">rds </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">.</span><span class="s1">remove</span><span class="s4">(</span><span class="s1">rds</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">replace_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Replace an rdataset. 
+ 
+        It is not an error if there is no rdataset matching *replacement*. 
+ 
+        Ownership of the *replacement* object is transferred to the node; 
+        in other words, this method does not store a copy of *replacement* 
+        at the node, it stores *replacement* itself. 
+ 
+        *replacement*, a ``dns.rdataset.Rdataset``. 
+ 
+        Raises ``ValueError`` if *replacement* is not a 
+        ``dns.rdataset.Rdataset``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">replacement</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">&quot;replacement is not an rdataset&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">replacement</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rrset</span><span class="s4">.</span><span class="s1">RRset</span><span class="s4">):</span>
+            <span class="s0"># RRsets are not good replacements as the match() method</span>
+            <span class="s0"># is not compatible.</span>
+            <span class="s1">replacement </span><span class="s4">= </span><span class="s1">replacement</span><span class="s4">.</span><span class="s1">to_rdataset</span><span class="s4">()</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">delete_rdataset</span><span class="s4">(</span>
+            <span class="s1">replacement</span><span class="s4">.</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">.</span><span class="s1">covers</span>
+        <span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_append_rdataset</span><span class="s4">(</span><span class="s1">replacement</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">classify</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; NodeKind</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Classify a node. 
+ 
+        A node which contains a CNAME or RRSIG(CNAME) is a 
+        ``NodeKind.CNAME`` node. 
+ 
+        A node which contains only &quot;neutral&quot; types, i.e. types allowed to 
+        co-exist with a CNAME, is a ``NodeKind.NEUTRAL`` node.  The neutral 
+        types are NSEC, NSEC3, KEY, and their associated RRSIGS.  An empty node 
+        is also considered neutral. 
+ 
+        A node which contains some rdataset which is not a CNAME, RRSIG(CNAME), 
+        or a neutral type is a a ``NodeKind.REGULAR`` node.  Regular nodes are 
+        also commonly referred to as &quot;other data&quot;. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">for </span><span class="s1">rdataset </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+            <span class="s1">kind </span><span class="s4">= </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">classify</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">covers</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">kind </span><span class="s4">!= </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">NEUTRAL</span><span class="s4">:</span>
+                <span class="s3">return </span><span class="s1">kind</span>
+        <span class="s3">return </span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">NEUTRAL</span>
+
+    <span class="s3">def </span><span class="s1">is_immutable</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; bool</span><span class="s4">:</span>
+        <span class="s3">return False</span>
+
+
+<span class="s4">@</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">class </span><span class="s1">ImmutableNode</span><span class="s4">(</span><span class="s1">Node</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">node</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">()</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets </span><span class="s4">= </span><span class="s1">tuple</span><span class="s4">(</span>
+            <span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">ImmutableRdataset</span><span class="s4">(</span><span class="s1">rds</span><span class="s4">) </span><span class="s3">for </span><span class="s1">rds </span><span class="s3">in </span><span class="s1">node</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">]</span>
+        <span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">find_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+        <span class="s1">create</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">create</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">TypeError</span><span class="s4">(</span><span class="s6">&quot;immutable&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">super</span><span class="s4">().</span><span class="s1">find_rdataset</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">, </span><span class="s3">False</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">get_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+        <span class="s1">create</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">]:</span>
+        <span class="s3">if </span><span class="s1">create</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">TypeError</span><span class="s4">(</span><span class="s6">&quot;immutable&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">super</span><span class="s4">().</span><span class="s1">get_rdataset</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">, </span><span class="s3">False</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">delete_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">,</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">TypeError</span><span class="s4">(</span><span class="s6">&quot;immutable&quot;</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">replace_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">TypeError</span><span class="s4">(</span><span class="s6">&quot;immutable&quot;</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">is_immutable</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; bool</span><span class="s4">:</span>
+        <span class="s3">return True</span>
+</pre>
+</body>
+</html>

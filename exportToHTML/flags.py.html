@@ -1,0 +1,146 @@
+<html>
+<head>
+<title>flags.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+.s6 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+flags.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2001-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;DNS Message Flags.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">enum</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Any</span>
+
+<span class="s0"># Standard DNS flags</span>
+
+
+<span class="s3">class </span><span class="s1">Flag</span><span class="s4">(</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntFlag</span><span class="s4">):</span>
+    <span class="s0">#: Query Response</span>
+    <span class="s1">QR </span><span class="s4">= </span><span class="s5">0x8000</span>
+    <span class="s0">#: Authoritative Answer</span>
+    <span class="s1">AA </span><span class="s4">= </span><span class="s5">0x0400</span>
+    <span class="s0">#: Truncated Response</span>
+    <span class="s1">TC </span><span class="s4">= </span><span class="s5">0x0200</span>
+    <span class="s0">#: Recursion Desired</span>
+    <span class="s1">RD </span><span class="s4">= </span><span class="s5">0x0100</span>
+    <span class="s0">#: Recursion Available</span>
+    <span class="s1">RA </span><span class="s4">= </span><span class="s5">0x0080</span>
+    <span class="s0">#: Authentic Data</span>
+    <span class="s1">AD </span><span class="s4">= </span><span class="s5">0x0020</span>
+    <span class="s0">#: Checking Disabled</span>
+    <span class="s1">CD </span><span class="s4">= </span><span class="s5">0x0010</span>
+
+
+<span class="s0"># EDNS flags</span>
+
+
+<span class="s3">class </span><span class="s1">EDNSFlag</span><span class="s4">(</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntFlag</span><span class="s4">):</span>
+    <span class="s0">#: DNSSEC answer OK</span>
+    <span class="s1">DO </span><span class="s4">= </span><span class="s5">0x8000</span>
+
+
+<span class="s3">def </span><span class="s1">_from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, </span><span class="s1">enum_class</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">) </span><span class="s1">-&gt; int</span><span class="s4">:</span>
+    <span class="s1">flags </span><span class="s4">= </span><span class="s5">0</span>
+    <span class="s1">tokens </span><span class="s4">= </span><span class="s1">text</span><span class="s4">.</span><span class="s1">split</span><span class="s4">()</span>
+    <span class="s3">for </span><span class="s1">t </span><span class="s3">in </span><span class="s1">tokens</span><span class="s4">:</span>
+        <span class="s1">flags </span><span class="s4">|= </span><span class="s1">enum_class</span><span class="s4">[</span><span class="s1">t</span><span class="s4">.</span><span class="s1">upper</span><span class="s4">()]</span>
+    <span class="s3">return </span><span class="s1">flags</span>
+
+
+<span class="s3">def </span><span class="s1">_to_text</span><span class="s4">(</span><span class="s1">flags</span><span class="s4">: </span><span class="s1">int</span><span class="s4">, </span><span class="s1">enum_class</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s1">text_flags </span><span class="s4">= []</span>
+    <span class="s3">for </span><span class="s1">k</span><span class="s4">, </span><span class="s1">v </span><span class="s3">in </span><span class="s1">enum_class</span><span class="s4">.</span><span class="s1">__members__</span><span class="s4">.</span><span class="s1">items</span><span class="s4">():</span>
+        <span class="s3">if </span><span class="s1">flags </span><span class="s4">&amp; </span><span class="s1">v </span><span class="s4">!= </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s1">text_flags</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">k</span><span class="s4">)</span>
+    <span class="s3">return </span><span class="s6">&quot; &quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">text_flags</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">) </span><span class="s1">-&gt; int</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert a space-separated list of flag text values into a flags 
+    value. 
+ 
+    Returns an ``int`` 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">_from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">, </span><span class="s1">Flag</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">flags</span><span class="s4">: </span><span class="s1">int</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert a flags value into a space-separated list of flag text 
+    values. 
+ 
+    Returns a ``str``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">_to_text</span><span class="s4">(</span><span class="s1">flags</span><span class="s4">, </span><span class="s1">Flag</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">edns_from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">) </span><span class="s1">-&gt; int</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert a space-separated list of EDNS flag text values into a EDNS 
+    flags value. 
+ 
+    Returns an ``int`` 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">_from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">, </span><span class="s1">EDNSFlag</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">edns_to_text</span><span class="s4">(</span><span class="s1">flags</span><span class="s4">: </span><span class="s1">int</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert an EDNS flags value into a space-separated list of EDNS flag 
+    text values. 
+ 
+    Returns a ``str``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">_to_text</span><span class="s4">(</span><span class="s1">flags</span><span class="s4">, </span><span class="s1">EDNSFlag</span><span class="s4">)</span>
+
+
+<span class="s0">### BEGIN generated Flag constants</span>
+
+<span class="s1">QR </span><span class="s4">= </span><span class="s1">Flag</span><span class="s4">.</span><span class="s1">QR</span>
+<span class="s1">AA </span><span class="s4">= </span><span class="s1">Flag</span><span class="s4">.</span><span class="s1">AA</span>
+<span class="s1">TC </span><span class="s4">= </span><span class="s1">Flag</span><span class="s4">.</span><span class="s1">TC</span>
+<span class="s1">RD </span><span class="s4">= </span><span class="s1">Flag</span><span class="s4">.</span><span class="s1">RD</span>
+<span class="s1">RA </span><span class="s4">= </span><span class="s1">Flag</span><span class="s4">.</span><span class="s1">RA</span>
+<span class="s1">AD </span><span class="s4">= </span><span class="s1">Flag</span><span class="s4">.</span><span class="s1">AD</span>
+<span class="s1">CD </span><span class="s4">= </span><span class="s1">Flag</span><span class="s4">.</span><span class="s1">CD</span>
+
+<span class="s0">### END generated Flag constants</span>
+
+<span class="s0">### BEGIN generated EDNSFlag constants</span>
+
+<span class="s1">DO </span><span class="s4">= </span><span class="s1">EDNSFlag</span><span class="s4">.</span><span class="s1">DO</span>
+
+<span class="s0">### END generated EDNSFlag constants</span>
+</pre>
+</body>
+</html>

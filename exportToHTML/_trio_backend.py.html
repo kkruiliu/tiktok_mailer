@@ -1,0 +1,276 @@
+<html>
+<head>
+<title>_trio_backend.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_trio_backend.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">&quot;&quot;&quot;trio async I/O library query support&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">socket</span>
+
+<span class="s3">import </span><span class="s1">trio</span>
+<span class="s3">import </span><span class="s1">trio</span><span class="s4">.</span><span class="s1">socket  </span><span class="s0"># type: ignore</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_asyncbackend</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_features</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span>
+
+<span class="s3">if not </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_features</span><span class="s4">.</span><span class="s1">have</span><span class="s4">(</span><span class="s5">&quot;trio&quot;</span><span class="s4">):</span>
+    <span class="s3">raise </span><span class="s1">ImportError</span><span class="s4">(</span><span class="s5">&quot;trio not found or too old&quot;</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+    <span class="s3">if </span><span class="s1">timeout </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">trio</span><span class="s4">.</span><span class="s1">move_on_after</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_asyncbackend</span><span class="s4">.</span><span class="s1">NullContext</span><span class="s4">()</span>
+
+
+<span class="s0"># for brevity</span>
+<span class="s1">_lltuple </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">low_level_address_tuple</span>
+
+<span class="s0"># pylint: disable=redefined-outer-name</span>
+
+
+<span class="s3">class </span><span class="s1">DatagramSocket</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_asyncbackend</span><span class="s4">.</span><span class="s1">DatagramSocket</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">sock</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">.</span><span class="s1">family</span><span class="s4">, </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_DGRAM</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">socket </span><span class="s4">= </span><span class="s1">sock</span>
+
+    <span class="s3">async def </span><span class="s1">sendto</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">what</span><span class="s4">, </span><span class="s1">destination</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+            <span class="s3">if </span><span class="s1">destination </span><span class="s3">is None</span><span class="s4">:</span>
+                <span class="s3">return await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">send</span><span class="s4">(</span><span class="s1">what</span><span class="s4">)</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s3">return await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">sendto</span><span class="s4">(</span><span class="s1">what</span><span class="s4">, </span><span class="s1">destination</span><span class="s4">)</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">Timeout</span><span class="s4">(</span>
+            <span class="s1">timeout</span><span class="s4">=</span><span class="s1">timeout</span>
+        <span class="s4">)  </span><span class="s0"># pragma: no cover  lgtm[py/unreachable-statement]</span>
+
+    <span class="s3">async def </span><span class="s1">recvfrom</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">size</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+            <span class="s3">return await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">recvfrom</span><span class="s4">(</span><span class="s1">size</span><span class="s4">)</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">Timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">=</span><span class="s1">timeout</span><span class="s4">)  </span><span class="s0"># lgtm[py/unreachable-statement]</span>
+
+    <span class="s3">async def </span><span class="s1">close</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">close</span><span class="s4">()</span>
+
+    <span class="s3">async def </span><span class="s1">getpeername</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">getpeername</span><span class="s4">()</span>
+
+    <span class="s3">async def </span><span class="s1">getsockname</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">getsockname</span><span class="s4">()</span>
+
+    <span class="s3">async def </span><span class="s1">getpeercert</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError</span>
+
+
+<span class="s3">class </span><span class="s1">StreamSocket</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_asyncbackend</span><span class="s4">.</span><span class="s1">StreamSocket</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">family</span><span class="s4">, </span><span class="s1">stream</span><span class="s4">, </span><span class="s1">tls</span><span class="s4">=</span><span class="s3">False</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">family</span><span class="s4">, </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_STREAM</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">stream </span><span class="s4">= </span><span class="s1">stream</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">tls </span><span class="s4">= </span><span class="s1">tls</span>
+
+    <span class="s3">async def </span><span class="s1">sendall</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">what</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+            <span class="s3">return await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">send_all</span><span class="s4">(</span><span class="s1">what</span><span class="s4">)</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">Timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">=</span><span class="s1">timeout</span><span class="s4">)  </span><span class="s0"># lgtm[py/unreachable-statement]</span>
+
+    <span class="s3">async def </span><span class="s1">recv</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">size</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+            <span class="s3">return await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">receive_some</span><span class="s4">(</span><span class="s1">size</span><span class="s4">)</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">Timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">=</span><span class="s1">timeout</span><span class="s4">)  </span><span class="s0"># lgtm[py/unreachable-statement]</span>
+
+    <span class="s3">async def </span><span class="s1">close</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">aclose</span><span class="s4">()</span>
+
+    <span class="s3">async def </span><span class="s1">getpeername</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tls</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">transport_stream</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">getpeername</span><span class="s4">()</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">getpeername</span><span class="s4">()</span>
+
+    <span class="s3">async def </span><span class="s1">getsockname</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tls</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">transport_stream</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">getsockname</span><span class="s4">()</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">getsockname</span><span class="s4">()</span>
+
+    <span class="s3">async def </span><span class="s1">getpeercert</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tls</span><span class="s4">:</span>
+            <span class="s3">with </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+                <span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">do_handshake</span><span class="s4">()</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">.</span><span class="s1">getpeercert</span><span class="s4">()</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">NotImplementedError</span>
+
+
+<span class="s3">if </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_features</span><span class="s4">.</span><span class="s1">have</span><span class="s4">(</span><span class="s5">&quot;doh&quot;</span><span class="s4">):</span>
+    <span class="s3">import </span><span class="s1">httpcore</span>
+    <span class="s3">import </span><span class="s1">httpcore</span><span class="s4">.</span><span class="s1">_backends</span><span class="s4">.</span><span class="s1">trio</span>
+    <span class="s3">import </span><span class="s1">httpx</span>
+
+    <span class="s1">_CoreAsyncNetworkBackend </span><span class="s4">= </span><span class="s1">httpcore</span><span class="s4">.</span><span class="s1">AsyncNetworkBackend</span>
+    <span class="s1">_CoreTrioStream </span><span class="s4">= </span><span class="s1">httpcore</span><span class="s4">.</span><span class="s1">_backends</span><span class="s4">.</span><span class="s1">trio</span><span class="s4">.</span><span class="s1">TrioStream</span>
+
+    <span class="s3">from </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">query </span><span class="s3">import </span><span class="s1">_compute_times</span><span class="s4">, </span><span class="s1">_expiration_for_this_attempt</span><span class="s4">, </span><span class="s1">_remaining</span>
+
+    <span class="s3">class </span><span class="s1">_NetworkBackend</span><span class="s4">(</span><span class="s1">_CoreAsyncNetworkBackend</span><span class="s4">):</span>
+        <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">resolver</span><span class="s4">, </span><span class="s1">local_port</span><span class="s4">, </span><span class="s1">bootstrap_address</span><span class="s4">, </span><span class="s1">family</span><span class="s4">):</span>
+            <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">()</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_local_port </span><span class="s4">= </span><span class="s1">local_port</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_resolver </span><span class="s4">= </span><span class="s1">resolver</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_bootstrap_address </span><span class="s4">= </span><span class="s1">bootstrap_address</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_family </span><span class="s4">= </span><span class="s1">family</span>
+
+        <span class="s3">async def </span><span class="s1">connect_tcp</span><span class="s4">(</span>
+            <span class="s1">self</span><span class="s4">, </span><span class="s1">host</span><span class="s4">, </span><span class="s1">port</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">, </span><span class="s1">local_address</span><span class="s4">, </span><span class="s1">socket_options</span><span class="s4">=</span><span class="s3">None</span>
+        <span class="s4">):  </span><span class="s0"># pylint: disable=signature-differs</span>
+            <span class="s1">addresses </span><span class="s4">= []</span>
+            <span class="s1">_</span><span class="s4">, </span><span class="s1">expiration </span><span class="s4">= </span><span class="s1">_compute_times</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">is_address</span><span class="s4">(</span><span class="s1">host</span><span class="s4">):</span>
+                <span class="s1">addresses</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">host</span><span class="s4">)</span>
+            <span class="s3">elif </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_bootstrap_address </span><span class="s3">is not None</span><span class="s4">:</span>
+                <span class="s1">addresses</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_bootstrap_address</span><span class="s4">)</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">timeout </span><span class="s4">= </span><span class="s1">_remaining</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">)</span>
+                <span class="s1">family </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_family</span>
+                <span class="s3">if </span><span class="s1">local_address</span><span class="s4">:</span>
+                    <span class="s1">family </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">local_address</span><span class="s4">)</span>
+                <span class="s1">answers </span><span class="s4">= </span><span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_resolver</span><span class="s4">.</span><span class="s1">resolve_name</span><span class="s4">(</span>
+                    <span class="s1">host</span><span class="s4">, </span><span class="s1">family</span><span class="s4">=</span><span class="s1">family</span><span class="s4">, </span><span class="s1">lifetime</span><span class="s4">=</span><span class="s1">timeout</span>
+                <span class="s4">)</span>
+                <span class="s1">addresses </span><span class="s4">= </span><span class="s1">answers</span><span class="s4">.</span><span class="s1">addresses</span><span class="s4">()</span>
+            <span class="s3">for </span><span class="s1">address </span><span class="s3">in </span><span class="s1">addresses</span><span class="s4">:</span>
+                <span class="s3">try</span><span class="s4">:</span>
+                    <span class="s1">af </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">address</span><span class="s4">)</span>
+                    <span class="s3">if </span><span class="s1">local_address </span><span class="s3">is not None or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_local_port </span><span class="s4">!= </span><span class="s6">0</span><span class="s4">:</span>
+                        <span class="s1">source </span><span class="s4">= (</span><span class="s1">local_address</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_local_port</span><span class="s4">)</span>
+                    <span class="s3">else</span><span class="s4">:</span>
+                        <span class="s1">source </span><span class="s4">= </span><span class="s3">None</span>
+                    <span class="s1">destination </span><span class="s4">= (</span><span class="s1">address</span><span class="s4">, </span><span class="s1">port</span><span class="s4">)</span>
+                    <span class="s1">attempt_expiration </span><span class="s4">= </span><span class="s1">_expiration_for_this_attempt</span><span class="s4">(</span><span class="s6">2.0</span><span class="s4">, </span><span class="s1">expiration</span><span class="s4">)</span>
+                    <span class="s1">timeout </span><span class="s4">= </span><span class="s1">_remaining</span><span class="s4">(</span><span class="s1">attempt_expiration</span><span class="s4">)</span>
+                    <span class="s1">sock </span><span class="s4">= </span><span class="s3">await </span><span class="s1">Backend</span><span class="s4">().</span><span class="s1">make_socket</span><span class="s4">(</span>
+                        <span class="s1">af</span><span class="s4">, </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_STREAM</span><span class="s4">, </span><span class="s6">0</span><span class="s4">, </span><span class="s1">source</span><span class="s4">, </span><span class="s1">destination</span><span class="s4">, </span><span class="s1">timeout</span>
+                    <span class="s4">)</span>
+                    <span class="s3">return </span><span class="s1">_CoreTrioStream</span><span class="s4">(</span><span class="s1">sock</span><span class="s4">.</span><span class="s1">stream</span><span class="s4">)</span>
+                <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+                    <span class="s3">continue</span>
+            <span class="s3">raise </span><span class="s1">httpcore</span><span class="s4">.</span><span class="s1">ConnectError</span>
+
+        <span class="s3">async def </span><span class="s1">connect_unix_socket</span><span class="s4">(</span>
+            <span class="s1">self</span><span class="s4">, </span><span class="s1">path</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">, </span><span class="s1">socket_options</span><span class="s4">=</span><span class="s3">None</span>
+        <span class="s4">):  </span><span class="s0"># pylint: disable=signature-differs</span>
+            <span class="s3">raise </span><span class="s1">NotImplementedError</span>
+
+        <span class="s3">async def </span><span class="s1">sleep</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">seconds</span><span class="s4">):  </span><span class="s0"># pylint: disable=signature-differs</span>
+            <span class="s3">await </span><span class="s1">trio</span><span class="s4">.</span><span class="s1">sleep</span><span class="s4">(</span><span class="s1">seconds</span><span class="s4">)</span>
+
+    <span class="s3">class </span><span class="s1">_HTTPTransport</span><span class="s4">(</span><span class="s1">httpx</span><span class="s4">.</span><span class="s1">AsyncHTTPTransport</span><span class="s4">):</span>
+        <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span>
+            <span class="s1">self</span><span class="s4">,</span>
+            <span class="s4">*</span><span class="s1">args</span><span class="s4">,</span>
+            <span class="s1">local_port</span><span class="s4">=</span><span class="s6">0</span><span class="s4">,</span>
+            <span class="s1">bootstrap_address</span><span class="s4">=</span><span class="s3">None</span><span class="s4">,</span>
+            <span class="s1">resolver</span><span class="s4">=</span><span class="s3">None</span><span class="s4">,</span>
+            <span class="s1">family</span><span class="s4">=</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_UNSPEC</span><span class="s4">,</span>
+            <span class="s4">**</span><span class="s1">kwargs</span><span class="s4">,</span>
+        <span class="s4">):</span>
+            <span class="s3">if </span><span class="s1">resolver </span><span class="s3">is None and </span><span class="s1">bootstrap_address </span><span class="s3">is None</span><span class="s4">:</span>
+                <span class="s0"># pylint: disable=import-outside-toplevel,redefined-outer-name</span>
+                <span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncresolver</span>
+
+                <span class="s1">resolver </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncresolver</span><span class="s4">.</span><span class="s1">Resolver</span><span class="s4">()</span>
+            <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(*</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_pool</span><span class="s4">.</span><span class="s1">_network_backend </span><span class="s4">= </span><span class="s1">_NetworkBackend</span><span class="s4">(</span>
+                <span class="s1">resolver</span><span class="s4">, </span><span class="s1">local_port</span><span class="s4">, </span><span class="s1">bootstrap_address</span><span class="s4">, </span><span class="s1">family</span>
+            <span class="s4">)</span>
+
+<span class="s3">else</span><span class="s4">:</span>
+    <span class="s1">_HTTPTransport </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_asyncbackend</span><span class="s4">.</span><span class="s1">NullTransport  </span><span class="s0"># type: ignore</span>
+
+
+<span class="s3">class </span><span class="s1">Backend</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">name</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">&quot;trio&quot;</span>
+
+    <span class="s3">async def </span><span class="s1">make_socket</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">af</span><span class="s4">,</span>
+        <span class="s1">socktype</span><span class="s4">,</span>
+        <span class="s1">proto</span><span class="s4">=</span><span class="s6">0</span><span class="s4">,</span>
+        <span class="s1">source</span><span class="s4">=</span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">destination</span><span class="s4">=</span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">timeout</span><span class="s4">=</span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">ssl_context</span><span class="s4">=</span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">server_hostname</span><span class="s4">=</span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s4">):</span>
+        <span class="s1">s </span><span class="s4">= </span><span class="s1">trio</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">.</span><span class="s1">socket</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">socktype</span><span class="s4">, </span><span class="s1">proto</span><span class="s4">)</span>
+        <span class="s1">stream </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">source</span><span class="s4">:</span>
+                <span class="s3">await </span><span class="s1">s</span><span class="s4">.</span><span class="s1">bind</span><span class="s4">(</span><span class="s1">_lltuple</span><span class="s4">(</span><span class="s1">source</span><span class="s4">, </span><span class="s1">af</span><span class="s4">))</span>
+            <span class="s3">if </span><span class="s1">socktype </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_STREAM </span><span class="s3">or </span><span class="s1">destination </span><span class="s3">is not None</span><span class="s4">:</span>
+                <span class="s1">connected </span><span class="s4">= </span><span class="s3">False</span>
+                <span class="s3">with </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+                    <span class="s3">await </span><span class="s1">s</span><span class="s4">.</span><span class="s1">connect</span><span class="s4">(</span><span class="s1">_lltuple</span><span class="s4">(</span><span class="s1">destination</span><span class="s4">, </span><span class="s1">af</span><span class="s4">))</span>
+                    <span class="s1">connected </span><span class="s4">= </span><span class="s3">True</span>
+                <span class="s3">if not </span><span class="s1">connected</span><span class="s4">:</span>
+                    <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">Timeout</span><span class="s4">(</span>
+                        <span class="s1">timeout</span><span class="s4">=</span><span class="s1">timeout</span>
+                    <span class="s4">)  </span><span class="s0"># lgtm[py/unreachable-statement]</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:  </span><span class="s0"># pragma: no cover</span>
+            <span class="s1">s</span><span class="s4">.</span><span class="s1">close</span><span class="s4">()</span>
+            <span class="s3">raise</span>
+        <span class="s3">if </span><span class="s1">socktype </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_DGRAM</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">DatagramSocket</span><span class="s4">(</span><span class="s1">s</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">socktype </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">SOCK_STREAM</span><span class="s4">:</span>
+            <span class="s1">stream </span><span class="s4">= </span><span class="s1">trio</span><span class="s4">.</span><span class="s1">SocketStream</span><span class="s4">(</span><span class="s1">s</span><span class="s4">)</span>
+            <span class="s1">tls </span><span class="s4">= </span><span class="s3">False</span>
+            <span class="s3">if </span><span class="s1">ssl_context</span><span class="s4">:</span>
+                <span class="s1">tls </span><span class="s4">= </span><span class="s3">True</span>
+                <span class="s3">try</span><span class="s4">:</span>
+                    <span class="s1">stream </span><span class="s4">= </span><span class="s1">trio</span><span class="s4">.</span><span class="s1">SSLStream</span><span class="s4">(</span>
+                        <span class="s1">stream</span><span class="s4">, </span><span class="s1">ssl_context</span><span class="s4">, </span><span class="s1">server_hostname</span><span class="s4">=</span><span class="s1">server_hostname</span>
+                    <span class="s4">)</span>
+                <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:  </span><span class="s0"># pragma: no cover</span>
+                    <span class="s3">await </span><span class="s1">stream</span><span class="s4">.</span><span class="s1">aclose</span><span class="s4">()</span>
+                    <span class="s3">raise</span>
+            <span class="s3">return </span><span class="s1">StreamSocket</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">stream</span><span class="s4">, </span><span class="s1">tls</span><span class="s4">)</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError</span><span class="s4">(</span>
+            <span class="s5">&quot;unsupported socket &quot; </span><span class="s4">+ </span><span class="s5">f&quot;type </span><span class="s3">{</span><span class="s1">socktype</span><span class="s3">}</span><span class="s5">&quot;</span>
+        <span class="s4">)  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">async def </span><span class="s1">sleep</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">interval</span><span class="s4">):</span>
+        <span class="s3">await </span><span class="s1">trio</span><span class="s4">.</span><span class="s1">sleep</span><span class="s4">(</span><span class="s1">interval</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">get_transport_class</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">_HTTPTransport</span>
+
+    <span class="s3">async def </span><span class="s1">wait_for</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">awaitable</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">_maybe_timeout</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">):</span>
+            <span class="s3">return await </span><span class="s1">awaitable</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">Timeout</span><span class="s4">(</span>
+            <span class="s1">timeout</span><span class="s4">=</span><span class="s1">timeout</span>
+        <span class="s4">)  </span><span class="s0"># pragma: no cover  lgtm[py/unreachable-statement]</span>
+</pre>
+</body>
+</html>

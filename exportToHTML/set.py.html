@@ -1,0 +1,331 @@
+<html>
+<head>
+<title>set.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #5f826b; font-style: italic;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+set.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">import </span><span class="s1">itertools</span>
+
+
+<span class="s2">class </span><span class="s1">Set</span><span class="s3">:</span>
+    <span class="s4">&quot;&quot;&quot;A simple set class. 
+ 
+    This class was originally used to deal with python not having a set class, and 
+    originally the class used lists in its implementation.  The ordered and indexable 
+    nature of RRsets and Rdatasets is unfortunately widely used in dnspython 
+    applications, so for backwards compatibility sets continue to be a custom class, now 
+    based on an ordered dictionary. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= [</span><span class="s5">&quot;items&quot;</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">items</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Initialize the set. 
+ 
+        *items*, an iterable or ``None``, the initial set of items. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">items </span><span class="s3">= </span><span class="s1">dict</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">items </span><span class="s2">is not None</span><span class="s3">:</span>
+            <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">items</span><span class="s3">:</span>
+                <span class="s0"># This is safe for how we use set, but if other code</span>
+                <span class="s0"># subclasses it could be a legitimate issue.</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">add</span><span class="s3">(</span><span class="s1">item</span><span class="s3">)  </span><span class="s0"># lgtm[py/init-calls-subclass]</span>
+
+    <span class="s2">def </span><span class="s1">__repr__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s5">f&quot;dns.set.Set(</span><span class="s2">{</span><span class="s1">repr</span><span class="s3">(</span><span class="s1">list</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">.</span><span class="s1">keys</span><span class="s3">()))</span><span class="s2">}</span><span class="s5">)&quot;  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s2">def </span><span class="s1">add</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">item</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Add an item to the set.&quot;&quot;&quot;</span>
+
+        <span class="s2">if </span><span class="s1">item </span><span class="s2">not in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">[</span><span class="s1">item</span><span class="s3">] = </span><span class="s2">None</span>
+
+    <span class="s2">def </span><span class="s1">remove</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">item</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Remove an item from the set.&quot;&quot;&quot;</span>
+
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s2">del </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">[</span><span class="s1">item</span><span class="s3">]</span>
+        <span class="s2">except </span><span class="s1">KeyError</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span>
+
+    <span class="s2">def </span><span class="s1">discard</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">item</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Remove an item from the set if present.&quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">.</span><span class="s1">pop</span><span class="s3">(</span><span class="s1">item</span><span class="s3">, </span><span class="s2">None</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">pop</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Remove an arbitrary item from the set.&quot;&quot;&quot;</span>
+        <span class="s3">(</span><span class="s1">k</span><span class="s3">, </span><span class="s1">_</span><span class="s3">) = </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">.</span><span class="s1">popitem</span><span class="s3">()</span>
+        <span class="s2">return </span><span class="s1">k</span>
+
+    <span class="s2">def </span><span class="s1">_clone</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; </span><span class="s5">&quot;Set&quot;</span><span class="s3">:</span>
+        <span class="s4">&quot;&quot;&quot;Make a (shallow) copy of the set. 
+ 
+        There is a 'clone protocol' that subclasses of this class 
+        should use.  To make a copy, first call your super's _clone() 
+        method, and use the object returned as the new instance.  Then 
+        make shallow copies of the attributes defined in the subclass. 
+ 
+        This protocol allows us to write the set algorithms that 
+        return new instances (e.g. union) once, and keep using them in 
+        subclasses. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s2">if </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s5">&quot;_clone_class&quot;</span><span class="s3">):</span>
+            <span class="s1">cls </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_clone_class  </span><span class="s0"># type: ignore</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">cls </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">__class__</span>
+        <span class="s1">obj </span><span class="s3">= </span><span class="s1">cls</span><span class="s3">.</span><span class="s1">__new__</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">)</span>
+        <span class="s1">obj</span><span class="s3">.</span><span class="s1">items </span><span class="s3">= </span><span class="s1">dict</span><span class="s3">()</span>
+        <span class="s1">obj</span><span class="s3">.</span><span class="s1">items</span><span class="s3">.</span><span class="s1">update</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">obj</span>
+
+    <span class="s2">def </span><span class="s1">__copy__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Make a (shallow) copy of the set.&quot;&quot;&quot;</span>
+
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_clone</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">copy</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Make a (shallow) copy of the set.&quot;&quot;&quot;</span>
+
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_clone</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">union_update</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Update the set, adding any elements from other which are not 
+        already in the set. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">other</span><span class="s3">, </span><span class="s1">Set</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;other must be a Set instance&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self </span><span class="s2">is </span><span class="s1">other</span><span class="s3">:  </span><span class="s0"># lgtm[py/comparison-using-is]</span>
+            <span class="s2">return</span>
+        <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">other</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">add</span><span class="s3">(</span><span class="s1">item</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">intersection_update</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Update the set, removing any elements from other which are not 
+        in both sets. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">other</span><span class="s3">, </span><span class="s1">Set</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;other must be a Set instance&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self </span><span class="s2">is </span><span class="s1">other</span><span class="s3">:  </span><span class="s0"># lgtm[py/comparison-using-is]</span>
+            <span class="s2">return</span>
+        <span class="s0"># we make a copy of the list so that we can remove items from</span>
+        <span class="s0"># the list without breaking the iterator.</span>
+        <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">list</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">):</span>
+            <span class="s2">if </span><span class="s1">item </span><span class="s2">not in </span><span class="s1">other</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+                <span class="s2">del </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">[</span><span class="s1">item</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">difference_update</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Update the set, removing any elements from other which are in 
+        the set. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">other</span><span class="s3">, </span><span class="s1">Set</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;other must be a Set instance&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self </span><span class="s2">is </span><span class="s1">other</span><span class="s3">:  </span><span class="s0"># lgtm[py/comparison-using-is]</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">.</span><span class="s1">clear</span><span class="s3">()</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">other</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">discard</span><span class="s3">(</span><span class="s1">item</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">symmetric_difference_update</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Update the set, retaining only elements unique to both sets.&quot;&quot;&quot;</span>
+
+        <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">other</span><span class="s3">, </span><span class="s1">Set</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;other must be a Set instance&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self </span><span class="s2">is </span><span class="s1">other</span><span class="s3">:  </span><span class="s0"># lgtm[py/comparison-using-is]</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">.</span><span class="s1">clear</span><span class="s3">()</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">overlap </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">intersection</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">union_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">difference_update</span><span class="s3">(</span><span class="s1">overlap</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">union</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new set which is the union of ``self`` and ``other``. 
+ 
+        Returns the same Set type as this set. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">obj </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_clone</span><span class="s3">()</span>
+        <span class="s1">obj</span><span class="s3">.</span><span class="s1">union_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">obj</span>
+
+    <span class="s2">def </span><span class="s1">intersection</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new set which is the intersection of ``self`` and 
+        ``other``. 
+ 
+        Returns the same Set type as this set. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">obj </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_clone</span><span class="s3">()</span>
+        <span class="s1">obj</span><span class="s3">.</span><span class="s1">intersection_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">obj</span>
+
+    <span class="s2">def </span><span class="s1">difference</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new set which ``self`` - ``other``, i.e. the items 
+        in ``self`` which are not also in ``other``. 
+ 
+        Returns the same Set type as this set. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">obj </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_clone</span><span class="s3">()</span>
+        <span class="s1">obj</span><span class="s3">.</span><span class="s1">difference_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">obj</span>
+
+    <span class="s2">def </span><span class="s1">symmetric_difference</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new set which (``self`` - ``other``) | (``other`` 
+        - ``self), ie: the items in either ``self`` or ``other`` which 
+        are not contained in their intersection. 
+ 
+        Returns the same Set type as this set. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">obj </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_clone</span><span class="s3">()</span>
+        <span class="s1">obj</span><span class="s3">.</span><span class="s1">symmetric_difference_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">obj</span>
+
+    <span class="s2">def </span><span class="s1">__or__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">union</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__and__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">intersection</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__add__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">union</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__sub__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">difference</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__xor__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">symmetric_difference</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__ior__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">union_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__iand__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">intersection_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__iadd__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">union_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__isub__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">difference_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__ixor__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">symmetric_difference_update</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">update</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Update the set, adding any elements from other which are not 
+        already in the set. 
+ 
+        *other*, the collection of items with which to update the set, which 
+        may be any iterable type. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">other</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">add</span><span class="s3">(</span><span class="s1">item</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">clear</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Make the set empty.&quot;&quot;&quot;</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">.</span><span class="s1">clear</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">__eq__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items </span><span class="s3">== </span><span class="s1">other</span><span class="s3">.</span><span class="s1">items</span>
+
+    <span class="s2">def </span><span class="s1">__ne__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">return not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">__eq__</span><span class="s3">(</span><span class="s1">other</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__len__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">len</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__iter__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">iter</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__getitem__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">i</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">i</span><span class="s3">, </span><span class="s1">slice</span><span class="s3">):</span>
+            <span class="s2">return </span><span class="s1">list</span><span class="s3">(</span><span class="s1">itertools</span><span class="s3">.</span><span class="s1">islice</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">, </span><span class="s1">i</span><span class="s3">.</span><span class="s1">start</span><span class="s3">, </span><span class="s1">i</span><span class="s3">.</span><span class="s1">stop</span><span class="s3">, </span><span class="s1">i</span><span class="s3">.</span><span class="s1">step</span><span class="s3">))</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s1">next</span><span class="s3">(</span><span class="s1">itertools</span><span class="s3">.</span><span class="s1">islice</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">, </span><span class="s1">i</span><span class="s3">, </span><span class="s1">i </span><span class="s3">+ </span><span class="s6">1</span><span class="s3">))</span>
+
+    <span class="s2">def </span><span class="s1">__delitem__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">i</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">i</span><span class="s3">, </span><span class="s1">slice</span><span class="s3">):</span>
+            <span class="s2">for </span><span class="s1">elt </span><span class="s2">in </span><span class="s1">list</span><span class="s3">(</span><span class="s1">self</span><span class="s3">[</span><span class="s1">i</span><span class="s3">]):</span>
+                <span class="s2">del </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">[</span><span class="s1">elt</span><span class="s3">]</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s2">del </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">[</span><span class="s1">self</span><span class="s3">[</span><span class="s1">i</span><span class="s3">]]</span>
+
+    <span class="s2">def </span><span class="s1">issubset</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Is this set a subset of *other*? 
+ 
+        Returns a ``bool``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">other</span><span class="s3">, </span><span class="s1">Set</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;other must be a Set instance&quot;</span><span class="s3">)</span>
+        <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">item </span><span class="s2">not in </span><span class="s1">other</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+                <span class="s2">return False</span>
+        <span class="s2">return True</span>
+
+    <span class="s2">def </span><span class="s1">issuperset</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Is this set a superset of *other*? 
+ 
+        Returns a ``bool``. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">other</span><span class="s3">, </span><span class="s1">Set</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;other must be a Set instance&quot;</span><span class="s3">)</span>
+        <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">other</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">item </span><span class="s2">not in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+                <span class="s2">return False</span>
+        <span class="s2">return True</span>
+
+    <span class="s2">def </span><span class="s1">isdisjoint</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">other</span><span class="s3">):</span>
+        <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">other</span><span class="s3">, </span><span class="s1">Set</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;other must be a Set instance&quot;</span><span class="s3">)</span>
+        <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">other</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">item </span><span class="s2">in </span><span class="s1">self</span><span class="s3">.</span><span class="s1">items</span><span class="s3">:</span>
+                <span class="s2">return False</span>
+        <span class="s2">return True</span>
+</pre>
+</body>
+</html>

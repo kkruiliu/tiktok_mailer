@@ -1,0 +1,44 @@
+<html>
+<head>
+<title>main.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+.s4 { color: #2aacb8;}
+.s5 { color: #7a7e85;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+main.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">database </span><span class="s0">import </span><span class="s1">mailboxes_col</span>
+
+<span class="s1">mailboxes_col</span><span class="s2">.</span><span class="s1">insert_one</span><span class="s2">({</span>
+    <span class="s3">&quot;name&quot;</span><span class="s2">: </span><span class="s3">&quot;campaignA&quot;</span><span class="s2">,</span>
+    <span class="s3">&quot;smtp_host&quot;</span><span class="s2">: </span><span class="s3">&quot;smtp.gmail.com&quot;</span><span class="s2">,</span>
+    <span class="s3">&quot;smtp_port&quot;</span><span class="s2">: </span><span class="s4">587</span><span class="s2">,</span>
+    <span class="s3">&quot;username&quot;</span><span class="s2">: </span><span class="s3">&quot;keruiliu233@gmail.com&quot;</span><span class="s2">,</span>
+    <span class="s3">&quot;password&quot;</span><span class="s2">: </span><span class="s3">&quot;kchkrkdeymoniafa&quot;</span><span class="s2">,  </span><span class="s5"># In production: encrypt this!</span>
+    <span class="s3">&quot;tls&quot;</span><span class="s2">: </span><span class="s0">True</span>
+<span class="s2">})</span>
+
+
+<span class="s0">from </span><span class="s1">send_email </span><span class="s0">import </span><span class="s1">send_email</span>
+
+<span class="s1">send_email</span><span class="s2">(</span>
+    <span class="s1">recipient</span><span class="s2">=</span><span class="s3">&quot;keruiliu233@gmail.com&quot;</span><span class="s2">,</span>
+    <span class="s1">subject</span><span class="s2">=</span><span class="s3">&quot;🔥 TikTok Ads: Try our automation!&quot;</span><span class="s2">,</span>
+    <span class="s1">html_body</span><span class="s2">=</span><span class="s3">&quot;&quot;&quot; 
+        &lt;h1&gt;Hello Kerui!&lt;/h1&gt; 
+        &lt;p&gt;This is your personalized TikTok ad system. 🎯&lt;/p&gt; 
+    &quot;&quot;&quot;</span><span class="s2">,</span>
+    <span class="s1">mailbox_name</span><span class="s2">=</span><span class="s3">&quot;campaignA&quot;</span>
+<span class="s2">)</span></pre>
+</body>
+</html>

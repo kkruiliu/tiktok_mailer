@@ -1,0 +1,370 @@
+<html>
+<head>
+<title>renderer.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+.s6 { color: #a5c261;}
+.s7 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+renderer.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2001-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;Help for building DNS wire format messages&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">contextlib</span>
+<span class="s3">import </span><span class="s1">io</span>
+<span class="s3">import </span><span class="s1">random</span>
+<span class="s3">import </span><span class="s1">struct</span>
+<span class="s3">import </span><span class="s1">time</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span>
+
+<span class="s1">QUESTION </span><span class="s4">= </span><span class="s5">0</span>
+<span class="s1">ANSWER </span><span class="s4">= </span><span class="s5">1</span>
+<span class="s1">AUTHORITY </span><span class="s4">= </span><span class="s5">2</span>
+<span class="s1">ADDITIONAL </span><span class="s4">= </span><span class="s5">3</span>
+
+
+<span class="s4">@</span><span class="s1">contextlib</span><span class="s4">.</span><span class="s1">contextmanager</span>
+<span class="s3">def </span><span class="s1">prefixed_length</span><span class="s4">(</span><span class="s1">output</span><span class="s4">, </span><span class="s1">length_length</span><span class="s4">):</span>
+    <span class="s1">output</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s6">b&quot;</span><span class="s3">\00</span><span class="s6">&quot; </span><span class="s4">* </span><span class="s1">length_length</span><span class="s4">)</span>
+    <span class="s1">start </span><span class="s4">= </span><span class="s1">output</span><span class="s4">.</span><span class="s1">tell</span><span class="s4">()</span>
+    <span class="s3">yield</span>
+    <span class="s1">end </span><span class="s4">= </span><span class="s1">output</span><span class="s4">.</span><span class="s1">tell</span><span class="s4">()</span>
+    <span class="s1">length </span><span class="s4">= </span><span class="s1">end </span><span class="s4">- </span><span class="s1">start</span>
+    <span class="s3">if </span><span class="s1">length </span><span class="s4">&gt; </span><span class="s5">0</span><span class="s4">:</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">output</span><span class="s4">.</span><span class="s1">seek</span><span class="s4">(</span><span class="s1">start </span><span class="s4">- </span><span class="s1">length_length</span><span class="s4">)</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s1">output</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">length</span><span class="s4">.</span><span class="s1">to_bytes</span><span class="s4">(</span><span class="s1">length_length</span><span class="s4">, </span><span class="s7">&quot;big&quot;</span><span class="s4">))</span>
+            <span class="s3">except </span><span class="s1">OverflowError</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">FormError</span>
+        <span class="s3">finally</span><span class="s4">:</span>
+            <span class="s1">output</span><span class="s4">.</span><span class="s1">seek</span><span class="s4">(</span><span class="s1">end</span><span class="s4">)</span>
+
+
+<span class="s3">class </span><span class="s1">Renderer</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Helper class for building DNS wire-format messages. 
+ 
+    Most applications can use the higher-level L{dns.message.Message} 
+    class and its to_wire() method to generate wire-format messages. 
+    This class is for those applications which need finer control 
+    over the generation of messages. 
+ 
+    Typical use:: 
+ 
+        r = dns.renderer.Renderer(id=1, flags=0x80, max_size=512) 
+        r.add_question(qname, qtype, qclass) 
+        r.add_rrset(dns.renderer.ANSWER, rrset_1) 
+        r.add_rrset(dns.renderer.ANSWER, rrset_2) 
+        r.add_rrset(dns.renderer.AUTHORITY, ns_rrset) 
+        r.add_rrset(dns.renderer.ADDITIONAL, ad_rrset_1) 
+        r.add_rrset(dns.renderer.ADDITIONAL, ad_rrset_2) 
+        r.add_edns(0, 0, 4096) 
+        r.write_header() 
+        r.add_tsig(keyname, secret, 300, 1, 0, '', request_mac) 
+        wire = r.get_wire() 
+ 
+    If padding is going to be used, then the OPT record MUST be 
+    written after everything else in the additional section except for 
+    the TSIG (if any). 
+ 
+    output, an io.BytesIO, where rendering is written 
+ 
+    id: the message id 
+ 
+    flags: the message flags 
+ 
+    max_size: the maximum size of the message 
+ 
+    origin: the origin to use when rendering relative names 
+ 
+    compress: the compression table 
+ 
+    section: an int, the section currently being rendered 
+ 
+    counts: list of the number of RRs in each section 
+ 
+    mac: the MAC of the rendered message (if TSIG was used) 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">id</span><span class="s4">=</span><span class="s3">None</span><span class="s4">, </span><span class="s1">flags</span><span class="s4">=</span><span class="s5">0</span><span class="s4">, </span><span class="s1">max_size</span><span class="s4">=</span><span class="s5">65535</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s3">None</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Initialize a new renderer.&quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">output </span><span class="s4">= </span><span class="s1">io</span><span class="s4">.</span><span class="s1">BytesIO</span><span class="s4">()</span>
+        <span class="s3">if </span><span class="s1">id </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">id </span><span class="s4">= </span><span class="s1">random</span><span class="s4">.</span><span class="s1">randint</span><span class="s4">(</span><span class="s5">0</span><span class="s4">, </span><span class="s5">65535</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">id </span><span class="s4">= </span><span class="s1">id</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">flags </span><span class="s4">= </span><span class="s1">flags</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">max_size </span><span class="s4">= </span><span class="s1">max_size</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">origin </span><span class="s4">= </span><span class="s1">origin</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">compress </span><span class="s4">= {}</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">section </span><span class="s4">= </span><span class="s1">QUESTION</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">counts </span><span class="s4">= [</span><span class="s5">0</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s5">0</span><span class="s4">]</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s6">b&quot;</span><span class="s3">\x00</span><span class="s6">&quot; </span><span class="s4">* </span><span class="s5">12</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">mac </span><span class="s4">= </span><span class="s7">&quot;&quot;</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">reserved </span><span class="s4">= </span><span class="s5">0</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">was_padded </span><span class="s4">= </span><span class="s3">False</span>
+
+    <span class="s3">def </span><span class="s1">_rollback</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">where</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Truncate the output buffer at offset *where*, and remove any 
+        compression table entries that pointed beyond the truncation 
+        point. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">seek</span><span class="s4">(</span><span class="s1">where</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">truncate</span><span class="s4">()</span>
+        <span class="s1">keys_to_delete </span><span class="s4">= []</span>
+        <span class="s3">for </span><span class="s1">k</span><span class="s4">, </span><span class="s1">v </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">compress</span><span class="s4">.</span><span class="s1">items</span><span class="s4">():</span>
+            <span class="s3">if </span><span class="s1">v </span><span class="s4">&gt;= </span><span class="s1">where</span><span class="s4">:</span>
+                <span class="s1">keys_to_delete</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">k</span><span class="s4">)</span>
+        <span class="s3">for </span><span class="s1">k </span><span class="s3">in </span><span class="s1">keys_to_delete</span><span class="s4">:</span>
+            <span class="s3">del </span><span class="s1">self</span><span class="s4">.</span><span class="s1">compress</span><span class="s4">[</span><span class="s1">k</span><span class="s4">]</span>
+
+    <span class="s3">def </span><span class="s1">_set_section</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">section</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Set the renderer's current section. 
+ 
+        Sections must be rendered order: QUESTION, ANSWER, AUTHORITY, 
+        ADDITIONAL.  Sections may be empty. 
+ 
+        Raises dns.exception.FormError if an attempt was made to set 
+        a section value less than the current section. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">section </span><span class="s4">!= </span><span class="s1">section</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">section </span><span class="s4">&gt; </span><span class="s1">section</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">FormError</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">section </span><span class="s4">= </span><span class="s1">section</span>
+
+    <span class="s4">@</span><span class="s1">contextlib</span><span class="s4">.</span><span class="s1">contextmanager</span>
+    <span class="s3">def </span><span class="s1">_track_size</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s1">start </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">tell</span><span class="s4">()</span>
+        <span class="s3">yield </span><span class="s1">start</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">tell</span><span class="s4">() &gt; </span><span class="s1">self</span><span class="s4">.</span><span class="s1">max_size</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_rollback</span><span class="s4">(</span><span class="s1">start</span><span class="s4">)</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">TooBig</span>
+
+    <span class="s4">@</span><span class="s1">contextlib</span><span class="s4">.</span><span class="s1">contextmanager</span>
+    <span class="s3">def </span><span class="s1">_temporarily_seek_to</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">where</span><span class="s4">):</span>
+        <span class="s1">current </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">tell</span><span class="s4">()</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">seek</span><span class="s4">(</span><span class="s1">where</span><span class="s4">)</span>
+            <span class="s3">yield</span>
+        <span class="s3">finally</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">seek</span><span class="s4">(</span><span class="s1">current</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">add_question</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">qname</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">=</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Add a question to the message.&quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_set_section</span><span class="s4">(</span><span class="s1">QUESTION</span><span class="s4">)</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_track_size</span><span class="s4">():</span>
+            <span class="s1">qname</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">compress</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span><span class="s7">&quot;!HH&quot;</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">))</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s1">QUESTION</span><span class="s4">] += </span><span class="s5">1</span>
+
+    <span class="s3">def </span><span class="s1">add_rrset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">section</span><span class="s4">, </span><span class="s1">rrset</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Add the rrset to the specified section. 
+ 
+        Any keyword arguments are passed on to the rdataset's to_wire() 
+        routine. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_set_section</span><span class="s4">(</span><span class="s1">section</span><span class="s4">)</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_track_size</span><span class="s4">():</span>
+            <span class="s1">n </span><span class="s4">= </span><span class="s1">rrset</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">compress</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s1">section</span><span class="s4">] += </span><span class="s1">n</span>
+
+    <span class="s3">def </span><span class="s1">add_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">section</span><span class="s4">, </span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Add the rdataset to the specified section, using the specified 
+        name as the owner name. 
+ 
+        Any keyword arguments are passed on to the rdataset's to_wire() 
+        routine. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_set_section</span><span class="s4">(</span><span class="s1">section</span><span class="s4">)</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_track_size</span><span class="s4">():</span>
+            <span class="s1">n </span><span class="s4">= </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">compress</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin</span><span class="s4">, **</span><span class="s1">kw</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s1">section</span><span class="s4">] += </span><span class="s1">n</span>
+
+    <span class="s3">def </span><span class="s1">add_opt</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">opt</span><span class="s4">, </span><span class="s1">pad</span><span class="s4">=</span><span class="s5">0</span><span class="s4">, </span><span class="s1">opt_size</span><span class="s4">=</span><span class="s5">0</span><span class="s4">, </span><span class="s1">tsig_size</span><span class="s4">=</span><span class="s5">0</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Add *opt* to the additional section, applying padding if desired.  The 
+        padding will take the specified precomputed OPT size and TSIG size into 
+        account. 
+ 
+        Note that we don't have reliable way of knowing how big a GSS-TSIG digest 
+        might be, so we we might not get an even multiple of the pad in that case.&quot;&quot;&quot;</span>
+        <span class="s3">if </span><span class="s1">pad</span><span class="s4">:</span>
+            <span class="s1">ttl </span><span class="s4">= </span><span class="s1">opt</span><span class="s4">.</span><span class="s1">ttl</span>
+            <span class="s3">assert </span><span class="s1">opt_size </span><span class="s4">&gt;= </span><span class="s5">11</span>
+            <span class="s1">opt_rdata </span><span class="s4">= </span><span class="s1">opt</span><span class="s4">[</span><span class="s5">0</span><span class="s4">]</span>
+            <span class="s1">size_without_padding </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">tell</span><span class="s4">() + </span><span class="s1">opt_size </span><span class="s4">+ </span><span class="s1">tsig_size</span>
+            <span class="s1">remainder </span><span class="s4">= </span><span class="s1">size_without_padding </span><span class="s4">% </span><span class="s1">pad</span>
+            <span class="s3">if </span><span class="s1">remainder</span><span class="s4">:</span>
+                <span class="s1">pad </span><span class="s4">= </span><span class="s6">b&quot;</span><span class="s3">\x00</span><span class="s6">&quot; </span><span class="s4">* (</span><span class="s1">pad </span><span class="s4">- </span><span class="s1">remainder</span><span class="s4">)</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">pad </span><span class="s4">= </span><span class="s6">b&quot;&quot;</span>
+            <span class="s1">options </span><span class="s4">= </span><span class="s1">list</span><span class="s4">(</span><span class="s1">opt_rdata</span><span class="s4">.</span><span class="s1">options</span><span class="s4">)</span>
+            <span class="s1">options</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">edns</span><span class="s4">.</span><span class="s1">GenericOption</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">edns</span><span class="s4">.</span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">PADDING</span><span class="s4">, </span><span class="s1">pad</span><span class="s4">))</span>
+            <span class="s1">opt </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">.</span><span class="s1">_make_opt</span><span class="s4">(</span><span class="s1">ttl</span><span class="s4">, </span><span class="s1">opt_rdata</span><span class="s4">.</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">options</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">was_padded </span><span class="s4">= </span><span class="s3">True</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">add_rrset</span><span class="s4">(</span><span class="s1">ADDITIONAL</span><span class="s4">, </span><span class="s1">opt</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">add_edns</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">edns</span><span class="s4">, </span><span class="s1">ednsflags</span><span class="s4">, </span><span class="s1">payload</span><span class="s4">, </span><span class="s1">options</span><span class="s4">=</span><span class="s3">None</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Add an EDNS OPT record to the message.&quot;&quot;&quot;</span>
+
+        <span class="s0"># make sure the EDNS version in ednsflags agrees with edns</span>
+        <span class="s1">ednsflags </span><span class="s4">&amp;= </span><span class="s5">0xFF00FFFF</span>
+        <span class="s1">ednsflags </span><span class="s4">|= </span><span class="s1">edns </span><span class="s4">&lt;&lt; </span><span class="s5">16</span>
+        <span class="s1">opt </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">.</span><span class="s1">_make_opt</span><span class="s4">(</span><span class="s1">ednsflags</span><span class="s4">, </span><span class="s1">payload</span><span class="s4">, </span><span class="s1">options</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">add_opt</span><span class="s4">(</span><span class="s1">opt</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">add_tsig</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">keyname</span><span class="s4">,</span>
+        <span class="s1">secret</span><span class="s4">,</span>
+        <span class="s1">fudge</span><span class="s4">,</span>
+        <span class="s1">id</span><span class="s4">,</span>
+        <span class="s1">tsig_error</span><span class="s4">,</span>
+        <span class="s1">other_data</span><span class="s4">,</span>
+        <span class="s1">request_mac</span><span class="s4">,</span>
+        <span class="s1">algorithm</span><span class="s4">=</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">default_algorithm</span><span class="s4">,</span>
+    <span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Add a TSIG signature to the message.&quot;&quot;&quot;</span>
+
+        <span class="s1">s </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">getvalue</span><span class="s4">()</span>
+
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">secret</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">Key</span><span class="s4">):</span>
+            <span class="s1">key </span><span class="s4">= </span><span class="s1">secret</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">key </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">Key</span><span class="s4">(</span><span class="s1">keyname</span><span class="s4">, </span><span class="s1">secret</span><span class="s4">, </span><span class="s1">algorithm</span><span class="s4">)</span>
+        <span class="s1">tsig </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">.</span><span class="s1">_make_tsig</span><span class="s4">(</span>
+            <span class="s1">keyname</span><span class="s4">, </span><span class="s1">algorithm</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s1">fudge</span><span class="s4">, </span><span class="s6">b&quot;&quot;</span><span class="s4">, </span><span class="s1">id</span><span class="s4">, </span><span class="s1">tsig_error</span><span class="s4">, </span><span class="s1">other_data</span>
+        <span class="s4">)</span>
+        <span class="s4">(</span><span class="s1">tsig</span><span class="s4">, </span><span class="s1">_</span><span class="s4">) = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">sign</span><span class="s4">(</span><span class="s1">s</span><span class="s4">, </span><span class="s1">key</span><span class="s4">, </span><span class="s1">tsig</span><span class="s4">[</span><span class="s5">0</span><span class="s4">], </span><span class="s1">int</span><span class="s4">(</span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()), </span><span class="s1">request_mac</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_tsig</span><span class="s4">(</span><span class="s1">tsig</span><span class="s4">, </span><span class="s1">keyname</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">add_multi_tsig</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">ctx</span><span class="s4">,</span>
+        <span class="s1">keyname</span><span class="s4">,</span>
+        <span class="s1">secret</span><span class="s4">,</span>
+        <span class="s1">fudge</span><span class="s4">,</span>
+        <span class="s1">id</span><span class="s4">,</span>
+        <span class="s1">tsig_error</span><span class="s4">,</span>
+        <span class="s1">other_data</span><span class="s4">,</span>
+        <span class="s1">request_mac</span><span class="s4">,</span>
+        <span class="s1">algorithm</span><span class="s4">=</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">default_algorithm</span><span class="s4">,</span>
+    <span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Add a TSIG signature to the message. Unlike add_tsig(), this can be 
+        used for a series of consecutive DNS envelopes, e.g. for a zone 
+        transfer over TCP [RFC2845, 4.4]. 
+ 
+        For the first message in the sequence, give ctx=None. For each 
+        subsequent message, give the ctx that was returned from the 
+        add_multi_tsig() call for the previous message.&quot;&quot;&quot;</span>
+
+        <span class="s1">s </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">getvalue</span><span class="s4">()</span>
+
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">secret</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">Key</span><span class="s4">):</span>
+            <span class="s1">key </span><span class="s4">= </span><span class="s1">secret</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">key </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">Key</span><span class="s4">(</span><span class="s1">keyname</span><span class="s4">, </span><span class="s1">secret</span><span class="s4">, </span><span class="s1">algorithm</span><span class="s4">)</span>
+        <span class="s1">tsig </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">message</span><span class="s4">.</span><span class="s1">Message</span><span class="s4">.</span><span class="s1">_make_tsig</span><span class="s4">(</span>
+            <span class="s1">keyname</span><span class="s4">, </span><span class="s1">algorithm</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s1">fudge</span><span class="s4">, </span><span class="s6">b&quot;&quot;</span><span class="s4">, </span><span class="s1">id</span><span class="s4">, </span><span class="s1">tsig_error</span><span class="s4">, </span><span class="s1">other_data</span>
+        <span class="s4">)</span>
+        <span class="s4">(</span><span class="s1">tsig</span><span class="s4">, </span><span class="s1">ctx</span><span class="s4">) = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tsig</span><span class="s4">.</span><span class="s1">sign</span><span class="s4">(</span>
+            <span class="s1">s</span><span class="s4">, </span><span class="s1">key</span><span class="s4">, </span><span class="s1">tsig</span><span class="s4">[</span><span class="s5">0</span><span class="s4">], </span><span class="s1">int</span><span class="s4">(</span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()), </span><span class="s1">request_mac</span><span class="s4">, </span><span class="s1">ctx</span><span class="s4">, </span><span class="s3">True</span>
+        <span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_tsig</span><span class="s4">(</span><span class="s1">tsig</span><span class="s4">, </span><span class="s1">keyname</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">ctx</span>
+
+    <span class="s3">def </span><span class="s1">_write_tsig</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">tsig</span><span class="s4">, </span><span class="s1">keyname</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">was_padded</span><span class="s4">:</span>
+            <span class="s1">compress </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">compress </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">compress</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_set_section</span><span class="s4">(</span><span class="s1">ADDITIONAL</span><span class="s4">)</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_track_size</span><span class="s4">():</span>
+            <span class="s1">keyname</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">, </span><span class="s1">compress</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span>
+                <span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span><span class="s7">&quot;!HHI&quot;</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">TSIG</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">ANY</span><span class="s4">, </span><span class="s5">0</span><span class="s4">)</span>
+            <span class="s4">)</span>
+            <span class="s3">with </span><span class="s1">prefixed_length</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">, </span><span class="s5">2</span><span class="s4">):</span>
+                <span class="s1">tsig</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">)</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s1">ADDITIONAL</span><span class="s4">] += </span><span class="s5">1</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_temporarily_seek_to</span><span class="s4">(</span><span class="s5">10</span><span class="s4">):</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span><span class="s7">&quot;!H&quot;</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s1">ADDITIONAL</span><span class="s4">]))</span>
+
+    <span class="s3">def </span><span class="s1">write_header</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Write the DNS message header. 
+ 
+        Writing the DNS message header is done after all sections 
+        have been rendered, but before the optional TSIG signature 
+        is added. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_temporarily_seek_to</span><span class="s4">(</span><span class="s5">0</span><span class="s4">):</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span>
+                <span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span>
+                    <span class="s7">&quot;!HHHHHH&quot;</span><span class="s4">,</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">id</span><span class="s4">,</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">flags</span><span class="s4">,</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s5">0</span><span class="s4">],</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s5">1</span><span class="s4">],</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s5">2</span><span class="s4">],</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">counts</span><span class="s4">[</span><span class="s5">3</span><span class="s4">],</span>
+                <span class="s4">)</span>
+            <span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">get_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Return the wire format message.&quot;&quot;&quot;</span>
+
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">output</span><span class="s4">.</span><span class="s1">getvalue</span><span class="s4">()</span>
+
+    <span class="s3">def </span><span class="s1">reserve</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">size</span><span class="s4">: </span><span class="s1">int</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Reserve *size* bytes.&quot;&quot;&quot;</span>
+        <span class="s3">if </span><span class="s1">size </span><span class="s4">&lt; </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;reserved amount must be non-negative&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">size </span><span class="s4">&gt; </span><span class="s1">self</span><span class="s4">.</span><span class="s1">max_size</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s7">&quot;cannot reserve more than the maximum size&quot;</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">reserved </span><span class="s4">+= </span><span class="s1">size</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">max_size </span><span class="s4">-= </span><span class="s1">size</span>
+
+    <span class="s3">def </span><span class="s1">release_reserved</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Release the reserved bytes.&quot;&quot;&quot;</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">max_size </span><span class="s4">+= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">reserved</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">reserved </span><span class="s4">= </span><span class="s5">0</span>
+</pre>
+</body>
+</html>

@@ -1,0 +1,318 @@
+<html>
+<head>
+<title>_sync.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #2aacb8;}
+.s5 { color: #6aab73;}
+.s6 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_sync.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">import </span><span class="s1">selectors</span>
+<span class="s2">import </span><span class="s1">socket</span>
+<span class="s2">import </span><span class="s1">ssl</span>
+<span class="s2">import </span><span class="s1">struct</span>
+<span class="s2">import </span><span class="s1">threading</span>
+<span class="s2">import </span><span class="s1">time</span>
+
+<span class="s2">import </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">configuration  </span><span class="s0"># type: ignore</span>
+<span class="s2">import </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">connection  </span><span class="s0"># type: ignore</span>
+<span class="s2">import </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">events  </span><span class="s0"># type: ignore</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">inet</span>
+<span class="s2">from </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">_common </span><span class="s2">import </span><span class="s3">(</span>
+    <span class="s1">QUIC_MAX_DATAGRAM</span><span class="s3">,</span>
+    <span class="s1">BaseQuicConnection</span><span class="s3">,</span>
+    <span class="s1">BaseQuicManager</span><span class="s3">,</span>
+    <span class="s1">BaseQuicStream</span><span class="s3">,</span>
+    <span class="s1">UnexpectedEOF</span><span class="s3">,</span>
+<span class="s3">)</span>
+
+<span class="s0"># Function used to create a socket.  Can be overridden if needed in special</span>
+<span class="s0"># situations.</span>
+<span class="s1">socket_factory </span><span class="s3">= </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">socket</span>
+
+
+<span class="s2">class </span><span class="s1">SyncQuicStream</span><span class="s3">(</span><span class="s1">BaseQuicStream</span><span class="s3">):</span>
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">connection</span><span class="s3">, </span><span class="s1">stream_id</span><span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">connection</span><span class="s3">, </span><span class="s1">stream_id</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up </span><span class="s3">= </span><span class="s1">threading</span><span class="s3">.</span><span class="s1">Condition</span><span class="s3">()</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_lock </span><span class="s3">= </span><span class="s1">threading</span><span class="s3">.</span><span class="s1">Lock</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">wait_for</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">amount</span><span class="s3">, </span><span class="s1">expiration</span><span class="s3">):</span>
+        <span class="s2">while True</span><span class="s3">:</span>
+            <span class="s1">timeout </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_timeout_from_expiration</span><span class="s3">(</span><span class="s1">expiration</span><span class="s3">)</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_buffer</span><span class="s3">.</span><span class="s1">have</span><span class="s3">(</span><span class="s1">amount</span><span class="s3">):</span>
+                    <span class="s2">return</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_expecting </span><span class="s3">= </span><span class="s1">amount</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">:</span>
+                <span class="s2">if not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">.</span><span class="s1">wait</span><span class="s3">(</span><span class="s1">timeout</span><span class="s3">):</span>
+                    <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">Timeout</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_expecting </span><span class="s3">= </span><span class="s4">0</span>
+
+    <span class="s2">def </span><span class="s1">wait_for_end</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">expiration</span><span class="s3">):</span>
+        <span class="s2">while True</span><span class="s3">:</span>
+            <span class="s1">timeout </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_timeout_from_expiration</span><span class="s3">(</span><span class="s1">expiration</span><span class="s3">)</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_buffer</span><span class="s3">.</span><span class="s1">seen_end</span><span class="s3">():</span>
+                    <span class="s2">return</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">:</span>
+                <span class="s2">if not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">.</span><span class="s1">wait</span><span class="s3">(</span><span class="s1">timeout</span><span class="s3">):</span>
+                    <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">Timeout</span>
+
+    <span class="s2">def </span><span class="s1">receive</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s1">expiration </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_expiration_from_timeout</span><span class="s3">(</span><span class="s1">timeout</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">is_h3</span><span class="s3">():</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">wait_for_end</span><span class="s3">(</span><span class="s1">expiration</span><span class="s3">)</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_buffer</span><span class="s3">.</span><span class="s1">get_all</span><span class="s3">()</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">wait_for</span><span class="s3">(</span><span class="s4">2</span><span class="s3">, </span><span class="s1">expiration</span><span class="s3">)</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s3">(</span><span class="s1">size</span><span class="s3">,) = </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s5">&quot;!H&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_buffer</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s4">2</span><span class="s3">))</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">wait_for</span><span class="s3">(</span><span class="s1">size</span><span class="s3">, </span><span class="s1">expiration</span><span class="s3">)</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_buffer</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">size</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">send</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">datagram</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s1">data </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_encapsulate</span><span class="s3">(</span><span class="s1">datagram</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_stream_id</span><span class="s3">, </span><span class="s1">data</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_add_input</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">data</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_common_add_input</span><span class="s3">(</span><span class="s1">data</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">):</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">.</span><span class="s1">notify</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">close</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_close</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">__enter__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__exit__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">exc_type</span><span class="s3">, </span><span class="s1">exc_val</span><span class="s3">, </span><span class="s1">exc_tb</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">close</span><span class="s3">()</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_wake_up</span><span class="s3">.</span><span class="s1">notify</span><span class="s3">()</span>
+        <span class="s2">return False</span>
+
+
+<span class="s2">class </span><span class="s1">SyncQuicConnection</span><span class="s3">(</span><span class="s1">BaseQuicConnection</span><span class="s3">):</span>
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">connection</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">source</span><span class="s3">, </span><span class="s1">source_port</span><span class="s3">, </span><span class="s1">manager</span><span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">connection</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">source</span><span class="s3">, </span><span class="s1">source_port</span><span class="s3">, </span><span class="s1">manager</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_socket </span><span class="s3">= </span><span class="s1">socket_factory</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_af</span><span class="s3">, </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">SOCK_DGRAM</span><span class="s3">, </span><span class="s4">0</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_source </span><span class="s2">is not None</span><span class="s3">:</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">.</span><span class="s1">bind</span><span class="s3">(</span>
+                    <span class="s1">dns</span><span class="s3">.</span><span class="s1">inet</span><span class="s3">.</span><span class="s1">low_level_address_tuple</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_source</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_af</span><span class="s3">)</span>
+                <span class="s3">)</span>
+            <span class="s2">except </span><span class="s1">Exception</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">.</span><span class="s1">close</span><span class="s3">()</span>
+                <span class="s2">raise</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">.</span><span class="s1">connect</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_peer</span><span class="s3">)</span>
+        <span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_send_wakeup</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_receive_wakeup</span><span class="s3">) = </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">socketpair</span><span class="s3">()</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_receive_wakeup</span><span class="s3">.</span><span class="s1">setblocking</span><span class="s3">(</span><span class="s2">False</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">.</span><span class="s1">setblocking</span><span class="s3">(</span><span class="s2">False</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_handshake_complete </span><span class="s3">= </span><span class="s1">threading</span><span class="s3">.</span><span class="s1">Event</span><span class="s3">()</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_worker_thread </span><span class="s3">= </span><span class="s2">None</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_lock </span><span class="s3">= </span><span class="s1">threading</span><span class="s3">.</span><span class="s1">Lock</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">_read</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s1">count </span><span class="s3">= </span><span class="s4">0</span>
+        <span class="s2">while </span><span class="s1">count </span><span class="s3">&lt; </span><span class="s4">10</span><span class="s3">:</span>
+            <span class="s1">count </span><span class="s3">+= </span><span class="s4">1</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">datagram </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">.</span><span class="s1">recv</span><span class="s3">(</span><span class="s1">QUIC_MAX_DATAGRAM</span><span class="s3">)</span>
+            <span class="s2">except </span><span class="s1">BlockingIOError</span><span class="s3">:</span>
+                <span class="s2">return</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">receive_datagram</span><span class="s3">(</span><span class="s1">datagram</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_peer</span><span class="s3">, </span><span class="s1">time</span><span class="s3">.</span><span class="s1">time</span><span class="s3">())</span>
+
+    <span class="s2">def </span><span class="s1">_drain_wakeup</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">while True</span><span class="s3">:</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_receive_wakeup</span><span class="s3">.</span><span class="s1">recv</span><span class="s3">(</span><span class="s4">32</span><span class="s3">)</span>
+            <span class="s2">except </span><span class="s1">BlockingIOError</span><span class="s3">:</span>
+                <span class="s2">return</span>
+
+    <span class="s2">def </span><span class="s1">_worker</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">sel </span><span class="s3">= </span><span class="s1">selectors</span><span class="s3">.</span><span class="s1">DefaultSelector</span><span class="s3">()</span>
+            <span class="s1">sel</span><span class="s3">.</span><span class="s1">register</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">, </span><span class="s1">selectors</span><span class="s3">.</span><span class="s1">EVENT_READ</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_read</span><span class="s3">)</span>
+            <span class="s1">sel</span><span class="s3">.</span><span class="s1">register</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_receive_wakeup</span><span class="s3">, </span><span class="s1">selectors</span><span class="s3">.</span><span class="s1">EVENT_READ</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_drain_wakeup</span><span class="s3">)</span>
+            <span class="s2">while not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_done</span><span class="s3">:</span>
+                <span class="s3">(</span><span class="s1">expiration</span><span class="s3">, </span><span class="s1">interval</span><span class="s3">) = </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_get_timer_values</span><span class="s3">(</span><span class="s2">False</span><span class="s3">)</span>
+                <span class="s1">items </span><span class="s3">= </span><span class="s1">sel</span><span class="s3">.</span><span class="s1">select</span><span class="s3">(</span><span class="s1">interval</span><span class="s3">)</span>
+                <span class="s2">for </span><span class="s1">key</span><span class="s3">, </span><span class="s1">_ </span><span class="s2">in </span><span class="s1">items</span><span class="s3">:</span>
+                    <span class="s1">key</span><span class="s3">.</span><span class="s1">data</span><span class="s3">()</span>
+                <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">_handle_timer</span><span class="s3">(</span><span class="s1">expiration</span><span class="s3">)</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_handle_events</span><span class="s3">()</span>
+                <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                    <span class="s1">datagrams </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">datagrams_to_send</span><span class="s3">(</span><span class="s1">time</span><span class="s3">.</span><span class="s1">time</span><span class="s3">())</span>
+                <span class="s2">for </span><span class="s1">datagram</span><span class="s3">, </span><span class="s1">_ </span><span class="s2">in </span><span class="s1">datagrams</span><span class="s3">:</span>
+                    <span class="s2">try</span><span class="s3">:</span>
+                        <span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">.</span><span class="s1">send</span><span class="s3">(</span><span class="s1">datagram</span><span class="s3">)</span>
+                    <span class="s2">except </span><span class="s1">BlockingIOError</span><span class="s3">:</span>
+                        <span class="s0"># we let QUIC handle any lossage</span>
+                        <span class="s2">pass</span>
+        <span class="s2">finally</span><span class="s3">:</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_done </span><span class="s3">= </span><span class="s2">True</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_socket</span><span class="s3">.</span><span class="s1">close</span><span class="s3">()</span>
+            <span class="s0"># Ensure anyone waiting for this gets woken up.</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_handshake_complete</span><span class="s3">.</span><span class="s1">set</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">_handle_events</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">while True</span><span class="s3">:</span>
+            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                <span class="s1">event </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">next_event</span><span class="s3">()</span>
+            <span class="s2">if </span><span class="s1">event </span><span class="s2">is None</span><span class="s3">:</span>
+                <span class="s2">return</span>
+            <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">event</span><span class="s3">, </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">events</span><span class="s3">.</span><span class="s1">StreamDataReceived</span><span class="s3">):</span>
+                <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">is_h3</span><span class="s3">():</span>
+                    <span class="s1">h3_events </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_h3_conn</span><span class="s3">.</span><span class="s1">handle_event</span><span class="s3">(</span><span class="s1">event</span><span class="s3">)</span>
+                    <span class="s2">for </span><span class="s1">h3_event </span><span class="s2">in </span><span class="s1">h3_events</span><span class="s3">:</span>
+                        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">h3_event</span><span class="s3">, </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">h3</span><span class="s3">.</span><span class="s1">events</span><span class="s3">.</span><span class="s1">HeadersReceived</span><span class="s3">):</span>
+                            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                                <span class="s1">stream </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_streams</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">event</span><span class="s3">.</span><span class="s1">stream_id</span><span class="s3">)</span>
+                            <span class="s2">if </span><span class="s1">stream</span><span class="s3">:</span>
+                                <span class="s2">if </span><span class="s1">stream</span><span class="s3">.</span><span class="s1">_headers </span><span class="s2">is None</span><span class="s3">:</span>
+                                    <span class="s1">stream</span><span class="s3">.</span><span class="s1">_headers </span><span class="s3">= </span><span class="s1">h3_event</span><span class="s3">.</span><span class="s1">headers</span>
+                                <span class="s2">elif </span><span class="s1">stream</span><span class="s3">.</span><span class="s1">_trailers </span><span class="s2">is None</span><span class="s3">:</span>
+                                    <span class="s1">stream</span><span class="s3">.</span><span class="s1">_trailers </span><span class="s3">= </span><span class="s1">h3_event</span><span class="s3">.</span><span class="s1">headers</span>
+                                <span class="s2">if </span><span class="s1">h3_event</span><span class="s3">.</span><span class="s1">stream_ended</span><span class="s3">:</span>
+                                    <span class="s1">stream</span><span class="s3">.</span><span class="s1">_add_input</span><span class="s3">(</span><span class="s6">b&quot;&quot;</span><span class="s3">, </span><span class="s2">True</span><span class="s3">)</span>
+                        <span class="s2">elif </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">h3_event</span><span class="s3">, </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">h3</span><span class="s3">.</span><span class="s1">events</span><span class="s3">.</span><span class="s1">DataReceived</span><span class="s3">):</span>
+                            <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                                <span class="s1">stream </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_streams</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">event</span><span class="s3">.</span><span class="s1">stream_id</span><span class="s3">)</span>
+                            <span class="s2">if </span><span class="s1">stream</span><span class="s3">:</span>
+                                <span class="s1">stream</span><span class="s3">.</span><span class="s1">_add_input</span><span class="s3">(</span><span class="s1">h3_event</span><span class="s3">.</span><span class="s1">data</span><span class="s3">, </span><span class="s1">h3_event</span><span class="s3">.</span><span class="s1">stream_ended</span><span class="s3">)</span>
+                <span class="s2">else</span><span class="s3">:</span>
+                    <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                        <span class="s1">stream </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_streams</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">event</span><span class="s3">.</span><span class="s1">stream_id</span><span class="s3">)</span>
+                    <span class="s2">if </span><span class="s1">stream</span><span class="s3">:</span>
+                        <span class="s1">stream</span><span class="s3">.</span><span class="s1">_add_input</span><span class="s3">(</span><span class="s1">event</span><span class="s3">.</span><span class="s1">data</span><span class="s3">, </span><span class="s1">event</span><span class="s3">.</span><span class="s1">end_stream</span><span class="s3">)</span>
+            <span class="s2">elif </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">event</span><span class="s3">, </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">events</span><span class="s3">.</span><span class="s1">HandshakeCompleted</span><span class="s3">):</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">_handshake_complete</span><span class="s3">.</span><span class="s1">set</span><span class="s3">()</span>
+            <span class="s2">elif </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">event</span><span class="s3">, </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">events</span><span class="s3">.</span><span class="s1">ConnectionTerminated</span><span class="s3">):</span>
+                <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">_done </span><span class="s3">= </span><span class="s2">True</span>
+            <span class="s2">elif </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">event</span><span class="s3">, </span><span class="s1">aioquic</span><span class="s3">.</span><span class="s1">quic</span><span class="s3">.</span><span class="s1">events</span><span class="s3">.</span><span class="s1">StreamReset</span><span class="s3">):</span>
+                <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+                    <span class="s1">stream </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_streams</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">event</span><span class="s3">.</span><span class="s1">stream_id</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">stream</span><span class="s3">:</span>
+                    <span class="s1">stream</span><span class="s3">.</span><span class="s1">_add_input</span><span class="s3">(</span><span class="s6">b&quot;&quot;</span><span class="s3">, </span><span class="s2">True</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">stream</span><span class="s3">, </span><span class="s1">data</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">send_stream_data</span><span class="s3">(</span><span class="s1">stream</span><span class="s3">, </span><span class="s1">data</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_send_wakeup</span><span class="s3">.</span><span class="s1">send</span><span class="s3">(</span><span class="s6">b&quot;</span><span class="s2">\x01</span><span class="s6">&quot;</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">send_headers</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">stream_id</span><span class="s3">, </span><span class="s1">headers</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">send_headers</span><span class="s3">(</span><span class="s1">stream_id</span><span class="s3">, </span><span class="s1">headers</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">is_end</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_send_wakeup</span><span class="s3">.</span><span class="s1">send</span><span class="s3">(</span><span class="s6">b&quot;</span><span class="s2">\x01</span><span class="s6">&quot;</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">send_data</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">stream_id</span><span class="s3">, </span><span class="s1">data</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">send_data</span><span class="s3">(</span><span class="s1">stream_id</span><span class="s3">, </span><span class="s1">data</span><span class="s3">, </span><span class="s1">is_end</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">is_end</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_send_wakeup</span><span class="s3">.</span><span class="s1">send</span><span class="s3">(</span><span class="s6">b&quot;</span><span class="s2">\x01</span><span class="s6">&quot;</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">run</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_closed</span><span class="s3">:</span>
+            <span class="s2">return</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_worker_thread </span><span class="s3">= </span><span class="s1">threading</span><span class="s3">.</span><span class="s1">Thread</span><span class="s3">(</span><span class="s1">target</span><span class="s3">=</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_worker</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_worker_thread</span><span class="s3">.</span><span class="s1">start</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">make_stream</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s2">if not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_handshake_complete</span><span class="s3">.</span><span class="s1">wait</span><span class="s3">(</span><span class="s1">timeout</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">Timeout</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_done</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">UnexpectedEOF</span>
+            <span class="s1">stream_id </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">get_next_available_stream_id</span><span class="s3">(</span><span class="s2">False</span><span class="s3">)</span>
+            <span class="s1">stream </span><span class="s3">= </span><span class="s1">SyncQuicStream</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">stream_id</span><span class="s3">)</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_streams</span><span class="s3">[</span><span class="s1">stream_id</span><span class="s3">] = </span><span class="s1">stream</span>
+        <span class="s2">return </span><span class="s1">stream</span>
+
+    <span class="s2">def </span><span class="s1">close_stream</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">stream_id</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">close_stream</span><span class="s3">(</span><span class="s1">stream_id</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">close</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_closed</span><span class="s3">:</span>
+                <span class="s2">return</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_manager</span><span class="s3">.</span><span class="s1">closed</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_peer</span><span class="s3">[</span><span class="s4">0</span><span class="s3">], </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_peer</span><span class="s3">[</span><span class="s4">1</span><span class="s3">])</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_closed </span><span class="s3">= </span><span class="s2">True</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_connection</span><span class="s3">.</span><span class="s1">close</span><span class="s3">()</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">_send_wakeup</span><span class="s3">.</span><span class="s1">send</span><span class="s3">(</span><span class="s6">b&quot;</span><span class="s2">\x01</span><span class="s6">&quot;</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_worker_thread</span><span class="s3">.</span><span class="s1">join</span><span class="s3">()</span>
+
+
+<span class="s2">class </span><span class="s1">SyncQuicManager</span><span class="s3">(</span><span class="s1">BaseQuicManager</span><span class="s3">):</span>
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span>
+        <span class="s1">self</span><span class="s3">, </span><span class="s1">conf</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">verify_mode</span><span class="s3">=</span><span class="s1">ssl</span><span class="s3">.</span><span class="s1">CERT_REQUIRED</span><span class="s3">, </span><span class="s1">server_name</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">h3</span><span class="s3">=</span><span class="s2">False</span>
+    <span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">conf</span><span class="s3">, </span><span class="s1">verify_mode</span><span class="s3">, </span><span class="s1">SyncQuicConnection</span><span class="s3">, </span><span class="s1">server_name</span><span class="s3">, </span><span class="s1">h3</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">_lock </span><span class="s3">= </span><span class="s1">threading</span><span class="s3">.</span><span class="s1">Lock</span><span class="s3">()</span>
+
+    <span class="s2">def </span><span class="s1">connect</span><span class="s3">(</span>
+        <span class="s1">self</span><span class="s3">,</span>
+        <span class="s1">address</span><span class="s3">,</span>
+        <span class="s1">port</span><span class="s3">=</span><span class="s4">853</span><span class="s3">,</span>
+        <span class="s1">source</span><span class="s3">=</span><span class="s2">None</span><span class="s3">,</span>
+        <span class="s1">source_port</span><span class="s3">=</span><span class="s4">0</span><span class="s3">,</span>
+        <span class="s1">want_session_ticket</span><span class="s3">=</span><span class="s2">True</span><span class="s3">,</span>
+        <span class="s1">want_token</span><span class="s3">=</span><span class="s2">True</span><span class="s3">,</span>
+    <span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s3">(</span><span class="s1">connection</span><span class="s3">, </span><span class="s1">start</span><span class="s3">) = </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_connect</span><span class="s3">(</span>
+                <span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">source</span><span class="s3">, </span><span class="s1">source_port</span><span class="s3">, </span><span class="s1">want_session_ticket</span><span class="s3">, </span><span class="s1">want_token</span>
+            <span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">start</span><span class="s3">:</span>
+                <span class="s1">connection</span><span class="s3">.</span><span class="s1">run</span><span class="s3">()</span>
+            <span class="s2">return </span><span class="s1">connection</span>
+
+    <span class="s2">def </span><span class="s1">closed</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">closed</span><span class="s3">(</span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">save_session_ticket</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">ticket</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">save_session_ticket</span><span class="s3">(</span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">ticket</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">save_token</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">token</span><span class="s3">):</span>
+        <span class="s2">with </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_lock</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">save_token</span><span class="s3">(</span><span class="s1">address</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">token</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__enter__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__exit__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">exc_type</span><span class="s3">, </span><span class="s1">exc_val</span><span class="s3">, </span><span class="s1">exc_tb</span><span class="s3">):</span>
+        <span class="s0"># Copy the iterator into a list as exiting things will mutate the connections</span>
+        <span class="s0"># table.</span>
+        <span class="s1">connections </span><span class="s3">= </span><span class="s1">list</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_connections</span><span class="s3">.</span><span class="s1">values</span><span class="s3">())</span>
+        <span class="s2">for </span><span class="s1">connection </span><span class="s2">in </span><span class="s1">connections</span><span class="s3">:</span>
+            <span class="s1">connection</span><span class="s3">.</span><span class="s1">close</span><span class="s3">()</span>
+        <span class="s2">return False</span>
+</pre>
+</body>
+</html>

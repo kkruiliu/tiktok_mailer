@@ -1,0 +1,119 @@
+<html>
+<head>
+<title>ecdsa.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #2aacb8;}
+.s4 { color: #6aab73;}
+.s5 { color: #5f826b; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+ecdsa.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">backends </span><span class="s0">import </span><span class="s1">default_backend</span>
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives </span><span class="s0">import </span><span class="s1">hashes</span>
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives</span><span class="s2">.</span><span class="s1">asymmetric </span><span class="s0">import </span><span class="s1">ec</span><span class="s2">, </span><span class="s1">utils</span>
+
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssecalgs</span><span class="s2">.</span><span class="s1">cryptography </span><span class="s0">import </span><span class="s1">CryptographyPrivateKey</span><span class="s2">, </span><span class="s1">CryptographyPublicKey</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssectypes </span><span class="s0">import </span><span class="s1">Algorithm</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">rdtypes</span><span class="s2">.</span><span class="s1">ANY</span><span class="s2">.</span><span class="s1">DNSKEY </span><span class="s0">import </span><span class="s1">DNSKEY</span>
+
+
+<span class="s0">class </span><span class="s1">PublicECDSA</span><span class="s2">(</span><span class="s1">CryptographyPublicKey</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">EllipticCurvePublicKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">EllipticCurvePublicKey</span>
+    <span class="s1">algorithm</span><span class="s2">: </span><span class="s1">Algorithm</span>
+    <span class="s1">chosen_hash</span><span class="s2">: </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">HashAlgorithm</span>
+    <span class="s1">curve</span><span class="s2">: </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">EllipticCurve</span>
+    <span class="s1">octets</span><span class="s2">: </span><span class="s1">int</span>
+
+    <span class="s0">def </span><span class="s1">verify</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">signature</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">, </span><span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s0">None</span><span class="s2">:</span>
+        <span class="s1">sig_r </span><span class="s2">= </span><span class="s1">signature</span><span class="s2">[</span><span class="s3">0 </span><span class="s2">: </span><span class="s1">self</span><span class="s2">.</span><span class="s1">octets</span><span class="s2">]</span>
+        <span class="s1">sig_s </span><span class="s2">= </span><span class="s1">signature</span><span class="s2">[</span><span class="s1">self</span><span class="s2">.</span><span class="s1">octets </span><span class="s2">:]</span>
+        <span class="s1">sig </span><span class="s2">= </span><span class="s1">utils</span><span class="s2">.</span><span class="s1">encode_dss_signature</span><span class="s2">(</span>
+            <span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">sig_r</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">), </span><span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">sig_s</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s2">)</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">sig</span><span class="s2">, </span><span class="s1">data</span><span class="s2">, </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">ECDSA</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">chosen_hash</span><span class="s2">))</span>
+
+    <span class="s0">def </span><span class="s1">encode_key_bytes</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s5">&quot;&quot;&quot;Encode a public key per RFC 6605, section 4.&quot;&quot;&quot;</span>
+        <span class="s1">pn </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">public_numbers</span><span class="s2">()</span>
+        <span class="s0">return </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">x</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">octets</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">) + </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">y</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">octets</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">from_dnskey</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">, </span><span class="s1">key</span><span class="s2">: </span><span class="s1">DNSKEY</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s4">&quot;PublicECDSA&quot;</span><span class="s2">:</span>
+        <span class="s1">cls</span><span class="s2">.</span><span class="s1">_ensure_algorithm_key_combination</span><span class="s2">(</span><span class="s1">key</span><span class="s2">)</span>
+        <span class="s1">ecdsa_x </span><span class="s2">= </span><span class="s1">key</span><span class="s2">.</span><span class="s1">key</span><span class="s2">[</span><span class="s3">0 </span><span class="s2">: </span><span class="s1">cls</span><span class="s2">.</span><span class="s1">octets</span><span class="s2">]</span>
+        <span class="s1">ecdsa_y </span><span class="s2">= </span><span class="s1">key</span><span class="s2">.</span><span class="s1">key</span><span class="s2">[</span><span class="s1">cls</span><span class="s2">.</span><span class="s1">octets </span><span class="s2">: </span><span class="s1">cls</span><span class="s2">.</span><span class="s1">octets </span><span class="s2">* </span><span class="s3">2</span><span class="s2">]</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span>
+            <span class="s1">key</span><span class="s2">=</span><span class="s1">ec</span><span class="s2">.</span><span class="s1">EllipticCurvePublicNumbers</span><span class="s2">(</span>
+                <span class="s1">curve</span><span class="s2">=</span><span class="s1">cls</span><span class="s2">.</span><span class="s1">curve</span><span class="s2">,</span>
+                <span class="s1">x</span><span class="s2">=</span><span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">ecdsa_x</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">),</span>
+                <span class="s1">y</span><span class="s2">=</span><span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">ecdsa_y</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">),</span>
+            <span class="s2">).</span><span class="s1">public_key</span><span class="s2">(</span><span class="s1">default_backend</span><span class="s2">()),</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateECDSA</span><span class="s2">(</span><span class="s1">CryptographyPrivateKey</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">EllipticCurvePrivateKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">EllipticCurvePrivateKey</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicECDSA</span>
+
+    <span class="s0">def </span><span class="s1">sign</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">,</span>
+        <span class="s1">verify</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">deterministic</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">True</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s5">&quot;&quot;&quot;Sign using a private key per RFC 6605, section 4.&quot;&quot;&quot;</span>
+        <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">ECDSA</span><span class="s2">(</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">public_cls</span><span class="s2">.</span><span class="s1">chosen_hash</span><span class="s2">, </span><span class="s1">deterministic_signing</span><span class="s2">=</span><span class="s1">deterministic</span>
+        <span class="s2">)</span>
+        <span class="s1">der_signature </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">sign</span><span class="s2">(</span><span class="s1">data</span><span class="s2">, </span><span class="s1">algorithm</span><span class="s2">)</span>
+        <span class="s1">dsa_r</span><span class="s2">, </span><span class="s1">dsa_s </span><span class="s2">= </span><span class="s1">utils</span><span class="s2">.</span><span class="s1">decode_dss_signature</span><span class="s2">(</span><span class="s1">der_signature</span><span class="s2">)</span>
+        <span class="s1">signature </span><span class="s2">= </span><span class="s1">int</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span>
+            <span class="s1">dsa_r</span><span class="s2">, </span><span class="s1">length</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">public_cls</span><span class="s2">.</span><span class="s1">octets</span><span class="s2">, </span><span class="s1">byteorder</span><span class="s2">=</span><span class="s4">&quot;big&quot;</span>
+        <span class="s2">) + </span><span class="s1">int</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">dsa_s</span><span class="s2">, </span><span class="s1">length</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">public_cls</span><span class="s2">.</span><span class="s1">octets</span><span class="s2">, </span><span class="s1">byteorder</span><span class="s2">=</span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s0">if </span><span class="s1">verify</span><span class="s2">:</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">public_key</span><span class="s2">().</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">signature</span><span class="s2">, </span><span class="s1">data</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">signature</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">generate</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s4">&quot;PrivateECDSA&quot;</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span>
+            <span class="s1">key</span><span class="s2">=</span><span class="s1">ec</span><span class="s2">.</span><span class="s1">generate_private_key</span><span class="s2">(</span>
+                <span class="s1">curve</span><span class="s2">=</span><span class="s1">cls</span><span class="s2">.</span><span class="s1">public_cls</span><span class="s2">.</span><span class="s1">curve</span><span class="s2">, </span><span class="s1">backend</span><span class="s2">=</span><span class="s1">default_backend</span><span class="s2">()</span>
+            <span class="s2">),</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">PublicECDSAP256SHA256</span><span class="s2">(</span><span class="s1">PublicECDSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">ECDSAP256SHA256</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">SHA256</span><span class="s2">()</span>
+    <span class="s1">curve </span><span class="s2">= </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">SECP256R1</span><span class="s2">()</span>
+    <span class="s1">octets </span><span class="s2">= </span><span class="s3">32</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateECDSAP256SHA256</span><span class="s2">(</span><span class="s1">PrivateECDSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicECDSAP256SHA256</span>
+
+
+<span class="s0">class </span><span class="s1">PublicECDSAP384SHA384</span><span class="s2">(</span><span class="s1">PublicECDSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">ECDSAP384SHA384</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">SHA384</span><span class="s2">()</span>
+    <span class="s1">curve </span><span class="s2">= </span><span class="s1">ec</span><span class="s2">.</span><span class="s1">SECP384R1</span><span class="s2">()</span>
+    <span class="s1">octets </span><span class="s2">= </span><span class="s3">48</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateECDSAP384SHA384</span><span class="s2">(</span><span class="s1">PrivateECDSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicECDSAP384SHA384</span>
+</pre>
+</body>
+</html>

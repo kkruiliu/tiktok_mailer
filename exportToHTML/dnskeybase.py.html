@@ -1,0 +1,110 @@
+<html>
+<head>
+<title>dnskeybase.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #6aab73;}
+.s5 { color: #2aacb8;}
+.s6 { color: #5f826b; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+dnskeybase.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2004-2007, 2009-2011 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">import </span><span class="s1">base64</span>
+<span class="s2">import </span><span class="s1">enum</span>
+<span class="s2">import </span><span class="s1">struct</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">dnssectypes</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span>
+
+<span class="s0"># wildcard import</span>
+<span class="s1">__all__ </span><span class="s3">= [</span><span class="s4">&quot;SEP&quot;</span><span class="s3">, </span><span class="s4">&quot;REVOKE&quot;</span><span class="s3">, </span><span class="s4">&quot;ZONE&quot;</span><span class="s3">]  </span><span class="s0"># noqa: F822</span>
+
+
+<span class="s2">class </span><span class="s1">Flag</span><span class="s3">(</span><span class="s1">enum</span><span class="s3">.</span><span class="s1">IntFlag</span><span class="s3">):</span>
+    <span class="s1">SEP </span><span class="s3">= </span><span class="s5">0x0001</span>
+    <span class="s1">REVOKE </span><span class="s3">= </span><span class="s5">0x0080</span>
+    <span class="s1">ZONE </span><span class="s3">= </span><span class="s5">0x0100</span>
+
+
+<span class="s3">@</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">class </span><span class="s1">DNSKEYBase</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">Rdata</span><span class="s3">):</span>
+    <span class="s6">&quot;&quot;&quot;Base class for rdata that is like a DNSKEY record&quot;&quot;&quot;</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= [</span><span class="s4">&quot;flags&quot;</span><span class="s3">, </span><span class="s4">&quot;protocol&quot;</span><span class="s3">, </span><span class="s4">&quot;algorithm&quot;</span><span class="s3">, </span><span class="s4">&quot;key&quot;</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">flags</span><span class="s3">, </span><span class="s1">protocol</span><span class="s3">, </span><span class="s1">algorithm</span><span class="s3">, </span><span class="s1">key</span><span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">flags </span><span class="s3">= </span><span class="s1">Flag</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_uint16</span><span class="s3">(</span><span class="s1">flags</span><span class="s3">))</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">protocol </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_uint8</span><span class="s3">(</span><span class="s1">protocol</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">algorithm </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">dnssectypes</span><span class="s3">.</span><span class="s1">Algorithm</span><span class="s3">.</span><span class="s1">make</span><span class="s3">(</span><span class="s1">algorithm</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">key </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_bytes</span><span class="s3">(</span><span class="s1">key</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s4">&quot;%d %d %d %s&quot; </span><span class="s3">% (</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">flags</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">protocol</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">algorithm</span><span class="s3">,</span>
+            <span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">_base64ify</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">key</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">),</span>
+        <span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_text</span><span class="s3">(</span>
+        <span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">tok</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, </span><span class="s1">relativize_to</span><span class="s3">=</span><span class="s2">None</span>
+    <span class="s3">):</span>
+        <span class="s1">flags </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint16</span><span class="s3">()</span>
+        <span class="s1">protocol </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint8</span><span class="s3">()</span>
+        <span class="s1">algorithm </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s1">b64 </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">concatenate_remaining_identifiers</span><span class="s3">().</span><span class="s1">encode</span><span class="s3">()</span>
+        <span class="s1">key </span><span class="s3">= </span><span class="s1">base64</span><span class="s3">.</span><span class="s1">b64decode</span><span class="s3">(</span><span class="s1">b64</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">flags</span><span class="s3">, </span><span class="s1">protocol</span><span class="s3">, </span><span class="s1">algorithm</span><span class="s3">, </span><span class="s1">key</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_to_wire</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">file</span><span class="s3">, </span><span class="s1">compress</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">canonicalize</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s1">header </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span><span class="s4">&quot;!HBB&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">flags</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">protocol</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">algorithm</span><span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">header</span><span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">key</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_wire_parser</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">parser</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s1">header </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_struct</span><span class="s3">(</span><span class="s4">&quot;!HBB&quot;</span><span class="s3">)</span>
+        <span class="s1">key </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_remaining</span><span class="s3">()</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">header</span><span class="s3">[</span><span class="s5">0</span><span class="s3">], </span><span class="s1">header</span><span class="s3">[</span><span class="s5">1</span><span class="s3">], </span><span class="s1">header</span><span class="s3">[</span><span class="s5">2</span><span class="s3">], </span><span class="s1">key</span><span class="s3">)</span>
+
+
+<span class="s0">### BEGIN generated Flag constants</span>
+
+<span class="s1">SEP </span><span class="s3">= </span><span class="s1">Flag</span><span class="s3">.</span><span class="s1">SEP</span>
+<span class="s1">REVOKE </span><span class="s3">= </span><span class="s1">Flag</span><span class="s3">.</span><span class="s1">REVOKE</span>
+<span class="s1">ZONE </span><span class="s3">= </span><span class="s1">Flag</span><span class="s3">.</span><span class="s1">ZONE</span>
+
+<span class="s0">### END generated Flag constants</span>
+</pre>
+</body>
+</html>

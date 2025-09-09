@@ -1,0 +1,140 @@
+<html>
+<head>
+<title>e164.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+e164.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2006-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;DNS E.164 helpers.&quot;&quot;&quot;</span>
+
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Iterable</span><span class="s4">, </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Union</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span>
+
+<span class="s0">#: The public E.164 domain.</span>
+<span class="s1">public_enum_domain </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s5">&quot;e164.arpa.&quot;</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">from_e164</span><span class="s4">(</span>
+    <span class="s1">text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s1">public_enum_domain</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert an E.164 number in textual form into a Name object whose 
+    value is the ENUM domain name for that number. 
+ 
+    Non-digits in the text are ignored, i.e. &quot;16505551212&quot;, 
+    &quot;+1.650.555.1212&quot; and &quot;1 (650) 555-1212&quot; are all the same. 
+ 
+    *text*, a ``str``, is an E.164 number in textual form. 
+ 
+    *origin*, a ``dns.name.Name``, the domain in which the number 
+    should be constructed.  The default is ``e164.arpa.``. 
+ 
+    Returns a ``dns.name.Name``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">parts </span><span class="s4">= [</span><span class="s1">d </span><span class="s3">for </span><span class="s1">d </span><span class="s3">in </span><span class="s1">text </span><span class="s3">if </span><span class="s1">d</span><span class="s4">.</span><span class="s1">isdigit</span><span class="s4">()]</span>
+    <span class="s1">parts</span><span class="s4">.</span><span class="s1">reverse</span><span class="s4">()</span>
+    <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s5">&quot;.&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">parts</span><span class="s4">), </span><span class="s1">origin</span><span class="s4">=</span><span class="s1">origin</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">to_e164</span><span class="s4">(</span>
+    <span class="s1">name</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">,</span>
+    <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s1">public_enum_domain</span><span class="s4">,</span>
+    <span class="s1">want_plus_prefix</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert an ENUM domain name into an E.164 number. 
+ 
+    Note that dnspython does not have any information about preferred 
+    number formats within national numbering plans, so all numbers are 
+    emitted as a simple string of digits, prefixed by a '+' (unless 
+    *want_plus_prefix* is ``False``). 
+ 
+    *name* is a ``dns.name.Name``, the ENUM domain name. 
+ 
+    *origin* is a ``dns.name.Name``, a domain containing the ENUM 
+    domain name.  The name is relativized to this domain before being 
+    converted to text.  If ``None``, no relativization is done. 
+ 
+    *want_plus_prefix* is a ``bool``.  If True, add a '+' to the beginning of 
+    the returned number. 
+ 
+    Returns a ``str``. 
+ 
+    &quot;&quot;&quot;</span>
+    <span class="s3">if </span><span class="s1">origin </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s1">name </span><span class="s4">= </span><span class="s1">name</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">)</span>
+    <span class="s1">dlabels </span><span class="s4">= [</span><span class="s1">d </span><span class="s3">for </span><span class="s1">d </span><span class="s3">in </span><span class="s1">name</span><span class="s4">.</span><span class="s1">labels </span><span class="s3">if </span><span class="s1">d</span><span class="s4">.</span><span class="s1">isdigit</span><span class="s4">() </span><span class="s3">and </span><span class="s1">len</span><span class="s4">(</span><span class="s1">d</span><span class="s4">) == </span><span class="s6">1</span><span class="s4">]</span>
+    <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">dlabels</span><span class="s4">) != </span><span class="s1">len</span><span class="s4">(</span><span class="s1">name</span><span class="s4">.</span><span class="s1">labels</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;non-digit labels in ENUM domain name&quot;</span><span class="s4">)</span>
+    <span class="s1">dlabels</span><span class="s4">.</span><span class="s1">reverse</span><span class="s4">()</span>
+    <span class="s1">text </span><span class="s4">= </span><span class="s7">b&quot;&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">dlabels</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">want_plus_prefix</span><span class="s4">:</span>
+        <span class="s1">text </span><span class="s4">= </span><span class="s7">b&quot;+&quot; </span><span class="s4">+ </span><span class="s1">text</span>
+    <span class="s3">return </span><span class="s1">text</span><span class="s4">.</span><span class="s1">decode</span><span class="s4">()</span>
+
+
+<span class="s3">def </span><span class="s1">query</span><span class="s4">(</span>
+    <span class="s1">number</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">domains</span><span class="s4">: </span><span class="s1">Iterable</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]],</span>
+    <span class="s1">resolver</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">Resolver</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">Answer</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Look for NAPTR RRs for the specified number in the specified domains. 
+ 
+    e.g. lookup('16505551212', ['e164.dnspython.org.', 'e164.arpa.']) 
+ 
+    *number*, a ``str`` is the number to look for. 
+ 
+    *domains* is an iterable containing ``dns.name.Name`` values. 
+ 
+    *resolver*, a ``dns.resolver.Resolver``, is the resolver to use.  If 
+    ``None``, the default resolver is used. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">resolver </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s1">resolver </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">get_default_resolver</span><span class="s4">()</span>
+    <span class="s1">e_nx </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">NXDOMAIN</span><span class="s4">()</span>
+    <span class="s3">for </span><span class="s1">domain </span><span class="s3">in </span><span class="s1">domains</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">domain</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+            <span class="s1">domain </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">domain</span><span class="s4">)</span>
+        <span class="s1">qname </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">e164</span><span class="s4">.</span><span class="s1">from_e164</span><span class="s4">(</span><span class="s1">number</span><span class="s4">, </span><span class="s1">domain</span><span class="s4">)</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span><span class="s1">qname</span><span class="s4">, </span><span class="s5">&quot;NAPTR&quot;</span><span class="s4">)</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">NXDOMAIN </span><span class="s3">as </span><span class="s1">e</span><span class="s4">:</span>
+            <span class="s1">e_nx </span><span class="s4">+= </span><span class="s1">e</span>
+    <span class="s3">raise </span><span class="s1">e_nx</span>
+</pre>
+</body>
+</html>

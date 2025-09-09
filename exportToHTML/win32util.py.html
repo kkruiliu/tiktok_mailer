@@ -1,0 +1,265 @@
+<html>
+<head>
+<title>win32util.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+.s4 { color: #7a7e85;}
+.s5 { color: #2aacb8;}
+.s6 { color: #5f826b; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+win32util.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">sys</span>
+
+<span class="s0">import </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">_features</span>
+
+<span class="s0">if </span><span class="s1">sys</span><span class="s2">.</span><span class="s1">platform </span><span class="s2">== </span><span class="s3">&quot;win32&quot;</span><span class="s2">:</span>
+    <span class="s0">from </span><span class="s1">typing </span><span class="s0">import </span><span class="s1">Any</span>
+
+    <span class="s0">import </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">name</span>
+
+    <span class="s1">_prefer_wmi </span><span class="s2">= </span><span class="s0">True</span>
+
+    <span class="s0">import </span><span class="s1">winreg  </span><span class="s4"># pylint: disable=import-error</span>
+
+    <span class="s4"># Keep pylint quiet on non-windows.</span>
+    <span class="s0">try</span><span class="s2">:</span>
+        <span class="s1">_ </span><span class="s2">= </span><span class="s1">WindowsError  </span><span class="s4"># pylint: disable=used-before-assignment</span>
+    <span class="s0">except </span><span class="s1">NameError</span><span class="s2">:</span>
+        <span class="s1">WindowsError </span><span class="s2">= </span><span class="s1">Exception</span>
+
+    <span class="s0">if </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">_features</span><span class="s2">.</span><span class="s1">have</span><span class="s2">(</span><span class="s3">&quot;wmi&quot;</span><span class="s2">):</span>
+        <span class="s0">import </span><span class="s1">threading</span>
+
+        <span class="s0">import </span><span class="s1">pythoncom  </span><span class="s4"># pylint: disable=import-error</span>
+        <span class="s0">import </span><span class="s1">wmi  </span><span class="s4"># pylint: disable=import-error</span>
+
+        <span class="s1">_have_wmi </span><span class="s2">= </span><span class="s0">True</span>
+    <span class="s0">else</span><span class="s2">:</span>
+        <span class="s1">_have_wmi </span><span class="s2">= </span><span class="s0">False</span>
+
+    <span class="s0">def </span><span class="s1">_config_domain</span><span class="s2">(</span><span class="s1">domain</span><span class="s2">):</span>
+        <span class="s4"># Sometimes DHCP servers add a '.' prefix to the default domain, and</span>
+        <span class="s4"># Windows just stores such values in the registry (see #687).</span>
+        <span class="s4"># Check for this and fix it.</span>
+        <span class="s0">if </span><span class="s1">domain</span><span class="s2">.</span><span class="s1">startswith</span><span class="s2">(</span><span class="s3">&quot;.&quot;</span><span class="s2">):</span>
+            <span class="s1">domain </span><span class="s2">= </span><span class="s1">domain</span><span class="s2">[</span><span class="s5">1</span><span class="s2">:]</span>
+        <span class="s0">return </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">name</span><span class="s2">.</span><span class="s1">from_text</span><span class="s2">(</span><span class="s1">domain</span><span class="s2">)</span>
+
+    <span class="s0">class </span><span class="s1">DnsInfo</span><span class="s2">:</span>
+        <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">domain </span><span class="s2">= </span><span class="s0">None</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">nameservers </span><span class="s2">= []</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">search </span><span class="s2">= []</span>
+
+    <span class="s0">if </span><span class="s1">_have_wmi</span><span class="s2">:</span>
+
+        <span class="s0">class </span><span class="s1">_WMIGetter</span><span class="s2">(</span><span class="s1">threading</span><span class="s2">.</span><span class="s1">Thread</span><span class="s2">):</span>
+            <span class="s4"># pylint: disable=possibly-used-before-assignment</span>
+            <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+                <span class="s1">super</span><span class="s2">().</span><span class="s1">__init__</span><span class="s2">()</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">info </span><span class="s2">= </span><span class="s1">DnsInfo</span><span class="s2">()</span>
+
+            <span class="s0">def </span><span class="s1">run</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+                <span class="s1">pythoncom</span><span class="s2">.</span><span class="s1">CoInitialize</span><span class="s2">()</span>
+                <span class="s0">try</span><span class="s2">:</span>
+                    <span class="s1">system </span><span class="s2">= </span><span class="s1">wmi</span><span class="s2">.</span><span class="s1">WMI</span><span class="s2">()</span>
+                    <span class="s0">for </span><span class="s1">interface </span><span class="s0">in </span><span class="s1">system</span><span class="s2">.</span><span class="s1">Win32_NetworkAdapterConfiguration</span><span class="s2">():</span>
+                        <span class="s0">if </span><span class="s1">interface</span><span class="s2">.</span><span class="s1">IPEnabled </span><span class="s0">and </span><span class="s1">interface</span><span class="s2">.</span><span class="s1">DNSServerSearchOrder</span><span class="s2">:</span>
+                            <span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">nameservers </span><span class="s2">= </span><span class="s1">list</span><span class="s2">(</span><span class="s1">interface</span><span class="s2">.</span><span class="s1">DNSServerSearchOrder</span><span class="s2">)</span>
+                            <span class="s0">if </span><span class="s1">interface</span><span class="s2">.</span><span class="s1">DNSDomain</span><span class="s2">:</span>
+                                <span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">domain </span><span class="s2">= </span><span class="s1">_config_domain</span><span class="s2">(</span><span class="s1">interface</span><span class="s2">.</span><span class="s1">DNSDomain</span><span class="s2">)</span>
+                            <span class="s0">if </span><span class="s1">interface</span><span class="s2">.</span><span class="s1">DNSDomainSuffixSearchOrder</span><span class="s2">:</span>
+                                <span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">search </span><span class="s2">= [</span>
+                                    <span class="s1">_config_domain</span><span class="s2">(</span><span class="s1">x</span><span class="s2">)</span>
+                                    <span class="s0">for </span><span class="s1">x </span><span class="s0">in </span><span class="s1">interface</span><span class="s2">.</span><span class="s1">DNSDomainSuffixSearchOrder</span>
+                                <span class="s2">]</span>
+                            <span class="s0">break</span>
+                <span class="s0">finally</span><span class="s2">:</span>
+                    <span class="s1">pythoncom</span><span class="s2">.</span><span class="s1">CoUninitialize</span><span class="s2">()</span>
+
+            <span class="s0">def </span><span class="s1">get</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+                <span class="s4"># We always run in a separate thread to avoid any issues with</span>
+                <span class="s4"># the COM threading model.</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">start</span><span class="s2">()</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">join</span><span class="s2">()</span>
+                <span class="s0">return </span><span class="s1">self</span><span class="s2">.</span><span class="s1">info</span>
+
+    <span class="s0">else</span><span class="s2">:</span>
+
+        <span class="s0">class </span><span class="s1">_WMIGetter</span><span class="s2">:  </span><span class="s4"># type: ignore</span>
+            <span class="s0">pass</span>
+
+    <span class="s0">class </span><span class="s1">_RegistryGetter</span><span class="s2">:</span>
+        <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">info </span><span class="s2">= </span><span class="s1">DnsInfo</span><span class="s2">()</span>
+
+        <span class="s0">def </span><span class="s1">_split</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">text</span><span class="s2">):</span>
+            <span class="s4"># The windows registry has used both &quot; &quot; and &quot;,&quot; as a delimiter, and while</span>
+            <span class="s4"># it is currently using &quot;,&quot; in Windows 10 and later, updates can seemingly</span>
+            <span class="s4"># leave a space in too, e.g. &quot;a, b&quot;.  So we just convert all commas to</span>
+            <span class="s4"># spaces, and use split() in its default configuration, which splits on</span>
+            <span class="s4"># all whitespace and ignores empty strings.</span>
+            <span class="s0">return </span><span class="s1">text</span><span class="s2">.</span><span class="s1">replace</span><span class="s2">(</span><span class="s3">&quot;,&quot;</span><span class="s2">, </span><span class="s3">&quot; &quot;</span><span class="s2">).</span><span class="s1">split</span><span class="s2">()</span>
+
+        <span class="s0">def </span><span class="s1">_config_nameservers</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">nameservers</span><span class="s2">):</span>
+            <span class="s0">for </span><span class="s1">ns </span><span class="s0">in </span><span class="s1">self</span><span class="s2">.</span><span class="s1">_split</span><span class="s2">(</span><span class="s1">nameservers</span><span class="s2">):</span>
+                <span class="s0">if </span><span class="s1">ns </span><span class="s0">not in </span><span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">nameservers</span><span class="s2">:</span>
+                    <span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">nameservers</span><span class="s2">.</span><span class="s1">append</span><span class="s2">(</span><span class="s1">ns</span><span class="s2">)</span>
+
+        <span class="s0">def </span><span class="s1">_config_search</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">search</span><span class="s2">):</span>
+            <span class="s0">for </span><span class="s1">s </span><span class="s0">in </span><span class="s1">self</span><span class="s2">.</span><span class="s1">_split</span><span class="s2">(</span><span class="s1">search</span><span class="s2">):</span>
+                <span class="s1">s </span><span class="s2">= </span><span class="s1">_config_domain</span><span class="s2">(</span><span class="s1">s</span><span class="s2">)</span>
+                <span class="s0">if </span><span class="s1">s </span><span class="s0">not in </span><span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">search</span><span class="s2">:</span>
+                    <span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">search</span><span class="s2">.</span><span class="s1">append</span><span class="s2">(</span><span class="s1">s</span><span class="s2">)</span>
+
+        <span class="s0">def </span><span class="s1">_config_fromkey</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">key</span><span class="s2">, </span><span class="s1">always_try_domain</span><span class="s2">):</span>
+            <span class="s0">try</span><span class="s2">:</span>
+                <span class="s1">servers</span><span class="s2">, </span><span class="s1">_ </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span><span class="s1">key</span><span class="s2">, </span><span class="s3">&quot;NameServer&quot;</span><span class="s2">)</span>
+            <span class="s0">except </span><span class="s1">WindowsError</span><span class="s2">:</span>
+                <span class="s1">servers </span><span class="s2">= </span><span class="s0">None</span>
+            <span class="s0">if </span><span class="s1">servers</span><span class="s2">:</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">_config_nameservers</span><span class="s2">(</span><span class="s1">servers</span><span class="s2">)</span>
+            <span class="s0">if </span><span class="s1">servers </span><span class="s0">or </span><span class="s1">always_try_domain</span><span class="s2">:</span>
+                <span class="s0">try</span><span class="s2">:</span>
+                    <span class="s1">dom</span><span class="s2">, </span><span class="s1">_ </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span><span class="s1">key</span><span class="s2">, </span><span class="s3">&quot;Domain&quot;</span><span class="s2">)</span>
+                    <span class="s0">if </span><span class="s1">dom</span><span class="s2">:</span>
+                        <span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">domain </span><span class="s2">= </span><span class="s1">_config_domain</span><span class="s2">(</span><span class="s1">dom</span><span class="s2">)</span>
+                <span class="s0">except </span><span class="s1">WindowsError</span><span class="s2">:</span>
+                    <span class="s0">pass</span>
+            <span class="s0">else</span><span class="s2">:</span>
+                <span class="s0">try</span><span class="s2">:</span>
+                    <span class="s1">servers</span><span class="s2">, </span><span class="s1">_ </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span><span class="s1">key</span><span class="s2">, </span><span class="s3">&quot;DhcpNameServer&quot;</span><span class="s2">)</span>
+                <span class="s0">except </span><span class="s1">WindowsError</span><span class="s2">:</span>
+                    <span class="s1">servers </span><span class="s2">= </span><span class="s0">None</span>
+                <span class="s0">if </span><span class="s1">servers</span><span class="s2">:</span>
+                    <span class="s1">self</span><span class="s2">.</span><span class="s1">_config_nameservers</span><span class="s2">(</span><span class="s1">servers</span><span class="s2">)</span>
+                    <span class="s0">try</span><span class="s2">:</span>
+                        <span class="s1">dom</span><span class="s2">, </span><span class="s1">_ </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span><span class="s1">key</span><span class="s2">, </span><span class="s3">&quot;DhcpDomain&quot;</span><span class="s2">)</span>
+                        <span class="s0">if </span><span class="s1">dom</span><span class="s2">:</span>
+                            <span class="s1">self</span><span class="s2">.</span><span class="s1">info</span><span class="s2">.</span><span class="s1">domain </span><span class="s2">= </span><span class="s1">_config_domain</span><span class="s2">(</span><span class="s1">dom</span><span class="s2">)</span>
+                    <span class="s0">except </span><span class="s1">WindowsError</span><span class="s2">:</span>
+                        <span class="s0">pass</span>
+            <span class="s0">try</span><span class="s2">:</span>
+                <span class="s1">search</span><span class="s2">, </span><span class="s1">_ </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span><span class="s1">key</span><span class="s2">, </span><span class="s3">&quot;SearchList&quot;</span><span class="s2">)</span>
+            <span class="s0">except </span><span class="s1">WindowsError</span><span class="s2">:</span>
+                <span class="s1">search </span><span class="s2">= </span><span class="s0">None</span>
+            <span class="s0">if </span><span class="s1">search </span><span class="s0">is None</span><span class="s2">:</span>
+                <span class="s0">try</span><span class="s2">:</span>
+                    <span class="s1">search</span><span class="s2">, </span><span class="s1">_ </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span><span class="s1">key</span><span class="s2">, </span><span class="s3">&quot;DhcpSearchList&quot;</span><span class="s2">)</span>
+                <span class="s0">except </span><span class="s1">WindowsError</span><span class="s2">:</span>
+                    <span class="s1">search </span><span class="s2">= </span><span class="s0">None</span>
+            <span class="s0">if </span><span class="s1">search</span><span class="s2">:</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">_config_search</span><span class="s2">(</span><span class="s1">search</span><span class="s2">)</span>
+
+        <span class="s0">def </span><span class="s1">_is_nic_enabled</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">lm</span><span class="s2">, </span><span class="s1">guid</span><span class="s2">):</span>
+            <span class="s4"># Look in the Windows Registry to determine whether the network</span>
+            <span class="s4"># interface corresponding to the given guid is enabled.</span>
+            <span class="s4">#</span>
+            <span class="s4"># (Code contributed by Paul Marks, thanks!)</span>
+            <span class="s4">#</span>
+            <span class="s0">try</span><span class="s2">:</span>
+                <span class="s4"># This hard-coded location seems to be consistent, at least</span>
+                <span class="s4"># from Windows 2000 through Vista.</span>
+                <span class="s1">connection_key </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">OpenKey</span><span class="s2">(</span>
+                    <span class="s1">lm</span><span class="s2">,</span>
+                    <span class="s3">r&quot;SYSTEM\CurrentControlSet\Control\Network&quot;</span>
+                    <span class="s3">r&quot;\{4D36E972-E325-11CE-BFC1-08002BE10318}&quot;</span>
+                    <span class="s3">rf&quot;\</span><span class="s0">{</span><span class="s1">guid</span><span class="s0">}</span><span class="s3">\Connection&quot;</span><span class="s2">,</span>
+                <span class="s2">)</span>
+
+                <span class="s0">try</span><span class="s2">:</span>
+                    <span class="s4"># The PnpInstanceID points to a key inside Enum</span>
+                    <span class="s2">(</span><span class="s1">pnp_id</span><span class="s2">, </span><span class="s1">ttype</span><span class="s2">) = </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span>
+                        <span class="s1">connection_key</span><span class="s2">, </span><span class="s3">&quot;PnpInstanceID&quot;</span>
+                    <span class="s2">)</span>
+
+                    <span class="s0">if </span><span class="s1">ttype </span><span class="s2">!= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">REG_SZ</span><span class="s2">:</span>
+                        <span class="s0">raise </span><span class="s1">ValueError  </span><span class="s4"># pragma: no cover</span>
+
+                    <span class="s1">device_key </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">OpenKey</span><span class="s2">(</span>
+                        <span class="s1">lm</span><span class="s2">, </span><span class="s3">rf&quot;SYSTEM\CurrentControlSet\Enum\</span><span class="s0">{</span><span class="s1">pnp_id</span><span class="s0">}</span><span class="s3">&quot;</span>
+                    <span class="s2">)</span>
+
+                    <span class="s0">try</span><span class="s2">:</span>
+                        <span class="s4"># Get ConfigFlags for this device</span>
+                        <span class="s2">(</span><span class="s1">flags</span><span class="s2">, </span><span class="s1">ttype</span><span class="s2">) = </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">QueryValueEx</span><span class="s2">(</span><span class="s1">device_key</span><span class="s2">, </span><span class="s3">&quot;ConfigFlags&quot;</span><span class="s2">)</span>
+
+                        <span class="s0">if </span><span class="s1">ttype </span><span class="s2">!= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">REG_DWORD</span><span class="s2">:</span>
+                            <span class="s0">raise </span><span class="s1">ValueError  </span><span class="s4"># pragma: no cover</span>
+
+                        <span class="s4"># Based on experimentation, bit 0x1 indicates that the</span>
+                        <span class="s4"># device is disabled.</span>
+                        <span class="s4">#</span>
+                        <span class="s4"># XXXRTH I suspect we really want to &amp; with 0x03 so</span>
+                        <span class="s4"># that CONFIGFLAGS_REMOVED devices are also ignored,</span>
+                        <span class="s4"># but we're shifting to WMI as ConfigFlags is not</span>
+                        <span class="s4"># supposed to be used.</span>
+                        <span class="s0">return not </span><span class="s1">flags </span><span class="s2">&amp; </span><span class="s5">0x1</span>
+
+                    <span class="s0">finally</span><span class="s2">:</span>
+                        <span class="s1">device_key</span><span class="s2">.</span><span class="s1">Close</span><span class="s2">()</span>
+                <span class="s0">finally</span><span class="s2">:</span>
+                    <span class="s1">connection_key</span><span class="s2">.</span><span class="s1">Close</span><span class="s2">()</span>
+            <span class="s0">except </span><span class="s1">Exception</span><span class="s2">:  </span><span class="s4"># pragma: no cover</span>
+                <span class="s0">return False</span>
+
+        <span class="s0">def </span><span class="s1">get</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+            <span class="s6">&quot;&quot;&quot;Extract resolver configuration from the Windows registry.&quot;&quot;&quot;</span>
+
+            <span class="s1">lm </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">ConnectRegistry</span><span class="s2">(</span><span class="s0">None</span><span class="s2">, </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">HKEY_LOCAL_MACHINE</span><span class="s2">)</span>
+            <span class="s0">try</span><span class="s2">:</span>
+                <span class="s1">tcp_params </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">OpenKey</span><span class="s2">(</span>
+                    <span class="s1">lm</span><span class="s2">, </span><span class="s3">r&quot;SYSTEM\CurrentControlSet\Services\Tcpip\Parameters&quot;</span>
+                <span class="s2">)</span>
+                <span class="s0">try</span><span class="s2">:</span>
+                    <span class="s1">self</span><span class="s2">.</span><span class="s1">_config_fromkey</span><span class="s2">(</span><span class="s1">tcp_params</span><span class="s2">, </span><span class="s0">True</span><span class="s2">)</span>
+                <span class="s0">finally</span><span class="s2">:</span>
+                    <span class="s1">tcp_params</span><span class="s2">.</span><span class="s1">Close</span><span class="s2">()</span>
+                <span class="s1">interfaces </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">OpenKey</span><span class="s2">(</span>
+                    <span class="s1">lm</span><span class="s2">,</span>
+                    <span class="s3">r&quot;SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces&quot;</span><span class="s2">,</span>
+                <span class="s2">)</span>
+                <span class="s0">try</span><span class="s2">:</span>
+                    <span class="s1">i </span><span class="s2">= </span><span class="s5">0</span>
+                    <span class="s0">while True</span><span class="s2">:</span>
+                        <span class="s0">try</span><span class="s2">:</span>
+                            <span class="s1">guid </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">EnumKey</span><span class="s2">(</span><span class="s1">interfaces</span><span class="s2">, </span><span class="s1">i</span><span class="s2">)</span>
+                            <span class="s1">i </span><span class="s2">+= </span><span class="s5">1</span>
+                            <span class="s1">key </span><span class="s2">= </span><span class="s1">winreg</span><span class="s2">.</span><span class="s1">OpenKey</span><span class="s2">(</span><span class="s1">interfaces</span><span class="s2">, </span><span class="s1">guid</span><span class="s2">)</span>
+                            <span class="s0">try</span><span class="s2">:</span>
+                                <span class="s0">if not </span><span class="s1">self</span><span class="s2">.</span><span class="s1">_is_nic_enabled</span><span class="s2">(</span><span class="s1">lm</span><span class="s2">, </span><span class="s1">guid</span><span class="s2">):</span>
+                                    <span class="s0">continue</span>
+                                <span class="s1">self</span><span class="s2">.</span><span class="s1">_config_fromkey</span><span class="s2">(</span><span class="s1">key</span><span class="s2">, </span><span class="s0">False</span><span class="s2">)</span>
+                            <span class="s0">finally</span><span class="s2">:</span>
+                                <span class="s1">key</span><span class="s2">.</span><span class="s1">Close</span><span class="s2">()</span>
+                        <span class="s0">except </span><span class="s1">OSError</span><span class="s2">:</span>
+                            <span class="s0">break</span>
+                <span class="s0">finally</span><span class="s2">:</span>
+                    <span class="s1">interfaces</span><span class="s2">.</span><span class="s1">Close</span><span class="s2">()</span>
+            <span class="s0">finally</span><span class="s2">:</span>
+                <span class="s1">lm</span><span class="s2">.</span><span class="s1">Close</span><span class="s2">()</span>
+            <span class="s0">return </span><span class="s1">self</span><span class="s2">.</span><span class="s1">info</span>
+
+    <span class="s1">_getter_class</span><span class="s2">: </span><span class="s1">Any</span>
+    <span class="s0">if </span><span class="s1">_have_wmi </span><span class="s0">and </span><span class="s1">_prefer_wmi</span><span class="s2">:</span>
+        <span class="s1">_getter_class </span><span class="s2">= </span><span class="s1">_WMIGetter</span>
+    <span class="s0">else</span><span class="s2">:</span>
+        <span class="s1">_getter_class </span><span class="s2">= </span><span class="s1">_RegistryGetter</span>
+
+    <span class="s0">def </span><span class="s1">get_dns_info</span><span class="s2">():</span>
+        <span class="s6">&quot;&quot;&quot;Extract resolver configuration.&quot;&quot;&quot;</span>
+        <span class="s1">getter </span><span class="s2">= </span><span class="s1">_getter_class</span><span class="s2">()</span>
+        <span class="s0">return </span><span class="s1">getter</span><span class="s2">.</span><span class="s1">get</span><span class="s2">()</span>
+</pre>
+</body>
+</html>

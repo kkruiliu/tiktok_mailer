@@ -1,0 +1,366 @@
+<html>
+<head>
+<title>xfr.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #5f826b; font-style: italic;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+xfr.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">from </span><span class="s1">typing </span><span class="s2">import </span><span class="s1">Any</span><span class="s3">, </span><span class="s1">List</span><span class="s3">, </span><span class="s1">Optional</span><span class="s3">, </span><span class="s1">Tuple</span><span class="s3">, </span><span class="s1">Union</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">message</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rcode</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdataset</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">serial</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">transaction</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">tsig</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">zone</span>
+
+
+<span class="s2">class </span><span class="s1">TransferError</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">DNSException</span><span class="s3">):</span>
+    <span class="s4">&quot;&quot;&quot;A zone transfer response got a non-zero rcode.&quot;&quot;&quot;</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">rcode</span><span class="s3">):</span>
+        <span class="s1">message </span><span class="s3">= </span><span class="s5">f&quot;Zone transfer error: </span><span class="s2">{</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rcode</span><span class="s3">.</span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">rcode</span><span class="s3">)</span><span class="s2">}</span><span class="s5">&quot;</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">message</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">rcode </span><span class="s3">= </span><span class="s1">rcode</span>
+
+
+<span class="s2">class </span><span class="s1">SerialWentBackwards</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">):</span>
+    <span class="s4">&quot;&quot;&quot;The current serial number is less than the serial we know.&quot;&quot;&quot;</span>
+
+
+<span class="s2">class </span><span class="s1">UseTCP</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">DNSException</span><span class="s3">):</span>
+    <span class="s4">&quot;&quot;&quot;This IXFR cannot be completed with UDP.&quot;&quot;&quot;</span>
+
+
+<span class="s2">class </span><span class="s1">Inbound</span><span class="s3">:</span>
+    <span class="s4">&quot;&quot;&quot; 
+    State machine for zone transfers. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span>
+        <span class="s1">self</span><span class="s3">,</span>
+        <span class="s1">txn_manager</span><span class="s3">: </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">transaction</span><span class="s3">.</span><span class="s1">TransactionManager</span><span class="s3">,</span>
+        <span class="s1">rdtype</span><span class="s3">: </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">RdataType </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">AXFR</span><span class="s3">,</span>
+        <span class="s1">serial</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">int</span><span class="s3">] = </span><span class="s2">None</span><span class="s3">,</span>
+        <span class="s1">is_udp</span><span class="s3">: </span><span class="s1">bool </span><span class="s3">= </span><span class="s2">False</span><span class="s3">,</span>
+    <span class="s3">):</span>
+        <span class="s4">&quot;&quot;&quot;Initialize an inbound zone transfer. 
+ 
+        *txn_manager* is a :py:class:`dns.transaction.TransactionManager`. 
+ 
+        *rdtype* can be `dns.rdatatype.AXFR` or `dns.rdatatype.IXFR` 
+ 
+        *serial* is the base serial number for IXFRs, and is required in 
+        that case. 
+ 
+        *is_udp*, a ``bool`` indidicates if UDP is being used for this 
+        XFR. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">txn_manager </span><span class="s3">= </span><span class="s1">txn_manager</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">transaction</span><span class="s3">.</span><span class="s1">Transaction</span><span class="s3">] = </span><span class="s2">None</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">= </span><span class="s1">rdtype</span>
+        <span class="s2">if </span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">serial </span><span class="s2">is None</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;a starting serial must be supplied for IXFRs&quot;</span><span class="s3">)</span>
+        <span class="s2">elif </span><span class="s1">is_udp</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;is_udp specified for AXFR&quot;</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">serial </span><span class="s3">= </span><span class="s1">serial</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">is_udp </span><span class="s3">= </span><span class="s1">is_udp</span>
+        <span class="s3">(</span><span class="s1">_</span><span class="s3">, </span><span class="s1">_</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">origin</span><span class="s3">) = </span><span class="s1">txn_manager</span><span class="s3">.</span><span class="s1">origin_information</span><span class="s3">()</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">soa_rdataset</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdataset</span><span class="s3">.</span><span class="s1">Rdataset</span><span class="s3">] = </span><span class="s2">None</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">done </span><span class="s3">= </span><span class="s2">False</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">expecting_SOA </span><span class="s3">= </span><span class="s2">False</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">delete_mode </span><span class="s3">= </span><span class="s2">False</span>
+
+    <span class="s2">def </span><span class="s1">process_message</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">message</span><span class="s3">: </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">message</span><span class="s3">.</span><span class="s1">Message</span><span class="s3">) </span><span class="s1">-&gt; bool</span><span class="s3">:</span>
+        <span class="s4">&quot;&quot;&quot;Process one message in the transfer. 
+ 
+        The message should have the same relativization as was specified when 
+        the `dns.xfr.Inbound` was created.  The message should also have been 
+        created with `one_rr_per_rrset=True` because order matters. 
+ 
+        Returns `True` if the transfer is complete, and `False` otherwise. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">txn </span><span class="s2">is None</span><span class="s3">:</span>
+            <span class="s1">replacement </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">AXFR</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">txn </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">txn_manager</span><span class="s3">.</span><span class="s1">writer</span><span class="s3">(</span><span class="s1">replacement</span><span class="s3">)</span>
+        <span class="s1">rcode </span><span class="s3">= </span><span class="s1">message</span><span class="s3">.</span><span class="s1">rcode</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">rcode </span><span class="s3">!= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rcode</span><span class="s3">.</span><span class="s1">NOERROR</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">TransferError</span><span class="s3">(</span><span class="s1">rcode</span><span class="s3">)</span>
+        <span class="s0">#</span>
+        <span class="s0"># We don't require a question section, but if it is present is</span>
+        <span class="s0"># should be correct.</span>
+        <span class="s0">#</span>
+        <span class="s2">if </span><span class="s1">len</span><span class="s3">(</span><span class="s1">message</span><span class="s3">.</span><span class="s1">question</span><span class="s3">) &gt; </span><span class="s6">0</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">message</span><span class="s3">.</span><span class="s1">question</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">name </span><span class="s3">!= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">origin</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;wrong question name&quot;</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">message</span><span class="s3">.</span><span class="s1">question</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">rdtype </span><span class="s3">!= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;wrong question rdatatype&quot;</span><span class="s3">)</span>
+        <span class="s1">answer_index </span><span class="s3">= </span><span class="s6">0</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">soa_rdataset </span><span class="s2">is None</span><span class="s3">:</span>
+            <span class="s0">#</span>
+            <span class="s0"># This is the first message.  We're expecting an SOA at</span>
+            <span class="s0"># the origin.</span>
+            <span class="s0">#</span>
+            <span class="s2">if not </span><span class="s1">message</span><span class="s3">.</span><span class="s1">answer </span><span class="s2">or </span><span class="s1">message</span><span class="s3">.</span><span class="s1">answer</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">name </span><span class="s3">!= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">origin</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;No answer or RRset not for zone origin&quot;</span><span class="s3">)</span>
+            <span class="s1">rrset </span><span class="s3">= </span><span class="s1">message</span><span class="s3">.</span><span class="s1">answer</span><span class="s3">[</span><span class="s6">0</span><span class="s3">]</span>
+            <span class="s1">rdataset </span><span class="s3">= </span><span class="s1">rrset</span>
+            <span class="s2">if </span><span class="s1">rdataset</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">!= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">SOA</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;first RRset is not an SOA&quot;</span><span class="s3">)</span>
+            <span class="s1">answer_index </span><span class="s3">= </span><span class="s6">1</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">soa_rdataset </span><span class="s3">= </span><span class="s1">rdataset</span><span class="s3">.</span><span class="s1">copy</span><span class="s3">()</span>
+            <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">soa_rdataset</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">serial </span><span class="s3">== </span><span class="s1">self</span><span class="s3">.</span><span class="s1">serial</span><span class="s3">:</span>
+                    <span class="s0">#</span>
+                    <span class="s0"># We're already up-to-date.</span>
+                    <span class="s0">#</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">done </span><span class="s3">= </span><span class="s2">True</span>
+                <span class="s2">elif </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">serial</span><span class="s3">.</span><span class="s1">Serial</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">soa_rdataset</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">serial</span><span class="s3">) &lt; </span><span class="s1">self</span><span class="s3">.</span><span class="s1">serial</span><span class="s3">:</span>
+                    <span class="s0"># It went backwards!</span>
+                    <span class="s2">raise </span><span class="s1">SerialWentBackwards</span>
+                <span class="s2">else</span><span class="s3">:</span>
+                    <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">is_udp </span><span class="s2">and </span><span class="s1">len</span><span class="s3">(</span><span class="s1">message</span><span class="s3">.</span><span class="s1">answer</span><span class="s3">[</span><span class="s1">answer_index</span><span class="s3">:]) == </span><span class="s6">0</span><span class="s3">:</span>
+                        <span class="s0">#</span>
+                        <span class="s0"># There are no more records, so this is the</span>
+                        <span class="s0"># &quot;truncated&quot; response.  Say to use TCP</span>
+                        <span class="s0">#</span>
+                        <span class="s2">raise </span><span class="s1">UseTCP</span>
+                    <span class="s0">#</span>
+                    <span class="s0"># Note we're expecting another SOA so we can detect</span>
+                    <span class="s0"># if this IXFR response is an AXFR-style response.</span>
+                    <span class="s0">#</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">expecting_SOA </span><span class="s3">= </span><span class="s2">True</span>
+        <span class="s0">#</span>
+        <span class="s0"># Process the answer section (other than the initial SOA in</span>
+        <span class="s0"># the first message).</span>
+        <span class="s0">#</span>
+        <span class="s2">for </span><span class="s1">rrset </span><span class="s2">in </span><span class="s1">message</span><span class="s3">.</span><span class="s1">answer</span><span class="s3">[</span><span class="s1">answer_index</span><span class="s3">:]:</span>
+            <span class="s1">name </span><span class="s3">= </span><span class="s1">rrset</span><span class="s3">.</span><span class="s1">name</span>
+            <span class="s1">rdataset </span><span class="s3">= </span><span class="s1">rrset</span>
+            <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">done</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;answers after final SOA&quot;</span><span class="s3">)</span>
+            <span class="s2">assert </span><span class="s1">self</span><span class="s3">.</span><span class="s1">txn </span><span class="s2">is not None  </span><span class="s0"># for mypy</span>
+            <span class="s2">if </span><span class="s1">rdataset</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">SOA </span><span class="s2">and </span><span class="s1">name </span><span class="s3">== </span><span class="s1">self</span><span class="s3">.</span><span class="s1">origin</span><span class="s3">:</span>
+                <span class="s0">#</span>
+                <span class="s0"># Every time we see an origin SOA delete_mode inverts</span>
+                <span class="s0">#</span>
+                <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span><span class="s3">:</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">delete_mode </span><span class="s3">= </span><span class="s2">not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">delete_mode</span>
+                <span class="s0">#</span>
+                <span class="s0"># If this SOA Rdataset is equal to the first we saw</span>
+                <span class="s0"># then we're finished. If this is an IXFR we also</span>
+                <span class="s0"># check that we're seeing the record in the expected</span>
+                <span class="s0"># part of the response.</span>
+                <span class="s0">#</span>
+                <span class="s2">if </span><span class="s1">rdataset </span><span class="s3">== </span><span class="s1">self</span><span class="s3">.</span><span class="s1">soa_rdataset </span><span class="s2">and </span><span class="s3">(</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">AXFR</span>
+                    <span class="s2">or </span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR </span><span class="s2">and </span><span class="s1">self</span><span class="s3">.</span><span class="s1">delete_mode</span><span class="s3">)</span>
+                <span class="s3">):</span>
+                    <span class="s0">#</span>
+                    <span class="s0"># This is the final SOA</span>
+                    <span class="s0">#</span>
+                    <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">expecting_SOA</span><span class="s3">:</span>
+                        <span class="s0"># We got an empty IXFR sequence!</span>
+                        <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;empty IXFR sequence&quot;</span><span class="s3">)</span>
+                    <span class="s2">if </span><span class="s3">(</span>
+                        <span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span>
+                        <span class="s2">and </span><span class="s1">self</span><span class="s3">.</span><span class="s1">serial </span><span class="s3">!= </span><span class="s1">rdataset</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">serial</span>
+                    <span class="s3">):</span>
+                        <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;unexpected end of IXFR sequence&quot;</span><span class="s3">)</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s1">name</span><span class="s3">, </span><span class="s1">rdataset</span><span class="s3">)</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">.</span><span class="s1">commit</span><span class="s3">()</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">txn </span><span class="s3">= </span><span class="s2">None</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">done </span><span class="s3">= </span><span class="s2">True</span>
+                <span class="s2">else</span><span class="s3">:</span>
+                    <span class="s0">#</span>
+                    <span class="s0"># This is not the final SOA</span>
+                    <span class="s0">#</span>
+                    <span class="s1">self</span><span class="s3">.</span><span class="s1">expecting_SOA </span><span class="s3">= </span><span class="s2">False</span>
+                    <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span><span class="s3">:</span>
+                        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">delete_mode</span><span class="s3">:</span>
+                            <span class="s0"># This is the start of an IXFR deletion set</span>
+                            <span class="s2">if </span><span class="s1">rdataset</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">serial </span><span class="s3">!= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">serial</span><span class="s3">:</span>
+                                <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span>
+                                    <span class="s5">&quot;IXFR base serial mismatch&quot;</span>
+                                <span class="s3">)</span>
+                        <span class="s2">else</span><span class="s3">:</span>
+                            <span class="s0"># This is the start of an IXFR addition set</span>
+                            <span class="s1">self</span><span class="s3">.</span><span class="s1">serial </span><span class="s3">= </span><span class="s1">rdataset</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">serial</span>
+                            <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s1">name</span><span class="s3">, </span><span class="s1">rdataset</span><span class="s3">)</span>
+                    <span class="s2">else</span><span class="s3">:</span>
+                        <span class="s0"># We saw a non-final SOA for the origin in an AXFR.</span>
+                        <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;unexpected origin SOA in AXFR&quot;</span><span class="s3">)</span>
+                <span class="s2">continue</span>
+            <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">expecting_SOA</span><span class="s3">:</span>
+                <span class="s0">#</span>
+                <span class="s0"># We made an IXFR request and are expecting another</span>
+                <span class="s0"># SOA RR, but saw something else, so this must be an</span>
+                <span class="s0"># AXFR response.</span>
+                <span class="s0">#</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">AXFR</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">expecting_SOA </span><span class="s3">= </span><span class="s2">False</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">delete_mode </span><span class="s3">= </span><span class="s2">False</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">.</span><span class="s1">rollback</span><span class="s3">()</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">txn </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">txn_manager</span><span class="s3">.</span><span class="s1">writer</span><span class="s3">(</span><span class="s2">True</span><span class="s3">)</span>
+                <span class="s0">#</span>
+                <span class="s0"># Note we are falling through into the code below</span>
+                <span class="s0"># so whatever rdataset this was gets written.</span>
+                <span class="s0">#</span>
+            <span class="s0"># Add or remove the data</span>
+            <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">delete_mode</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">.</span><span class="s1">delete_exact</span><span class="s3">(</span><span class="s1">name</span><span class="s3">, </span><span class="s1">rdataset</span><span class="s3">)</span>
+            <span class="s2">else</span><span class="s3">:</span>
+                <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">.</span><span class="s1">add</span><span class="s3">(</span><span class="s1">name</span><span class="s3">, </span><span class="s1">rdataset</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">is_udp </span><span class="s2">and not </span><span class="s1">self</span><span class="s3">.</span><span class="s1">done</span><span class="s3">:</span>
+            <span class="s0">#</span>
+            <span class="s0"># This is a UDP IXFR and we didn't get to done, and we didn't</span>
+            <span class="s0"># get the proper &quot;truncated&quot; response</span>
+            <span class="s0">#</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;unexpected end of UDP IXFR&quot;</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">done</span>
+
+    <span class="s0">#</span>
+    <span class="s0"># Inbounds are context managers.</span>
+    <span class="s0">#</span>
+
+    <span class="s2">def </span><span class="s1">__enter__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__exit__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">exc_type</span><span class="s3">, </span><span class="s1">exc_val</span><span class="s3">, </span><span class="s1">exc_tb</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">txn</span><span class="s3">.</span><span class="s1">rollback</span><span class="s3">()</span>
+        <span class="s2">return False</span>
+
+
+<span class="s2">def </span><span class="s1">make_query</span><span class="s3">(</span>
+    <span class="s1">txn_manager</span><span class="s3">: </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">transaction</span><span class="s3">.</span><span class="s1">TransactionManager</span><span class="s3">,</span>
+    <span class="s1">serial</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">int</span><span class="s3">] = </span><span class="s6">0</span><span class="s3">,</span>
+    <span class="s1">use_edns</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">Union</span><span class="s3">[</span><span class="s1">int</span><span class="s3">, </span><span class="s1">bool</span><span class="s3">]] = </span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s1">ednsflags</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">int</span><span class="s3">] = </span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s1">payload</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">int</span><span class="s3">] = </span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s1">request_payload</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">int</span><span class="s3">] = </span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s1">options</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">List</span><span class="s3">[</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">edns</span><span class="s3">.</span><span class="s1">Option</span><span class="s3">]] = </span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s1">keyring</span><span class="s3">: </span><span class="s1">Any </span><span class="s3">= </span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s1">keyname</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span><span class="s3">.</span><span class="s1">Name</span><span class="s3">] = </span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s1">keyalgorithm</span><span class="s3">: </span><span class="s1">Union</span><span class="s3">[</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span><span class="s3">.</span><span class="s1">Name</span><span class="s3">, </span><span class="s1">str</span><span class="s3">] = </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">tsig</span><span class="s3">.</span><span class="s1">default_algorithm</span><span class="s3">,</span>
+<span class="s3">) </span><span class="s1">-&gt; Tuple</span><span class="s3">[</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">message</span><span class="s3">.</span><span class="s1">QueryMessage</span><span class="s3">, </span><span class="s1">Optional</span><span class="s3">[</span><span class="s1">int</span><span class="s3">]]:</span>
+    <span class="s4">&quot;&quot;&quot;Make an AXFR or IXFR query. 
+ 
+    *txn_manager* is a ``dns.transaction.TransactionManager``, typically a 
+    ``dns.zone.Zone``. 
+ 
+    *serial* is an ``int`` or ``None``.  If 0, then IXFR will be 
+    attempted using the most recent serial number from the 
+    *txn_manager*; it is the caller's responsibility to ensure there 
+    are no write transactions active that could invalidate the 
+    retrieved serial.  If a serial cannot be determined, AXFR will be 
+    forced.  Other integer values are the starting serial to use. 
+    ``None`` forces an AXFR. 
+ 
+    Please see the documentation for :py:func:`dns.message.make_query` and 
+    :py:func:`dns.message.Message.use_tsig` for details on the other parameters 
+    to this function. 
+ 
+    Returns a `(query, serial)` tuple. 
+    &quot;&quot;&quot;</span>
+    <span class="s3">(</span><span class="s1">zone_origin</span><span class="s3">, </span><span class="s1">_</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">) = </span><span class="s1">txn_manager</span><span class="s3">.</span><span class="s1">origin_information</span><span class="s3">()</span>
+    <span class="s2">if </span><span class="s1">zone_origin </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;no zone origin&quot;</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">serial </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s1">rdtype </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">AXFR</span>
+    <span class="s2">elif not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">serial</span><span class="s3">, </span><span class="s1">int</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;serial is not an integer&quot;</span><span class="s3">)</span>
+    <span class="s2">elif </span><span class="s1">serial </span><span class="s3">== </span><span class="s6">0</span><span class="s3">:</span>
+        <span class="s2">with </span><span class="s1">txn_manager</span><span class="s3">.</span><span class="s1">reader</span><span class="s3">() </span><span class="s2">as </span><span class="s1">txn</span><span class="s3">:</span>
+            <span class="s1">rdataset </span><span class="s3">= </span><span class="s1">txn</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">origin</span><span class="s3">, </span><span class="s5">&quot;SOA&quot;</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">rdataset</span><span class="s3">:</span>
+                <span class="s1">serial </span><span class="s3">= </span><span class="s1">rdataset</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">serial</span>
+                <span class="s1">rdtype </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span>
+            <span class="s2">else</span><span class="s3">:</span>
+                <span class="s1">serial </span><span class="s3">= </span><span class="s2">None</span>
+                <span class="s1">rdtype </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">AXFR</span>
+    <span class="s2">elif </span><span class="s1">serial </span><span class="s3">&gt; </span><span class="s6">0 </span><span class="s2">and </span><span class="s1">serial </span><span class="s3">&lt; </span><span class="s6">4294967296</span><span class="s3">:</span>
+        <span class="s1">rdtype </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;serial out-of-range&quot;</span><span class="s3">)</span>
+    <span class="s1">rdclass </span><span class="s3">= </span><span class="s1">txn_manager</span><span class="s3">.</span><span class="s1">get_class</span><span class="s3">()</span>
+    <span class="s1">q </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">message</span><span class="s3">.</span><span class="s1">make_query</span><span class="s3">(</span>
+        <span class="s1">zone_origin</span><span class="s3">,</span>
+        <span class="s1">rdtype</span><span class="s3">,</span>
+        <span class="s1">rdclass</span><span class="s3">,</span>
+        <span class="s1">use_edns</span><span class="s3">,</span>
+        <span class="s2">False</span><span class="s3">,</span>
+        <span class="s1">ednsflags</span><span class="s3">,</span>
+        <span class="s1">payload</span><span class="s3">,</span>
+        <span class="s1">request_payload</span><span class="s3">,</span>
+        <span class="s1">options</span><span class="s3">,</span>
+    <span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">serial </span><span class="s2">is not None</span><span class="s3">:</span>
+        <span class="s1">rdata </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">from_text</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s5">&quot;SOA&quot;</span><span class="s3">, </span><span class="s5">f&quot;. . </span><span class="s2">{</span><span class="s1">serial</span><span class="s2">} </span><span class="s5">0 0 0 0&quot;</span><span class="s3">)</span>
+        <span class="s1">rrset </span><span class="s3">= </span><span class="s1">q</span><span class="s3">.</span><span class="s1">find_rrset</span><span class="s3">(</span>
+            <span class="s1">q</span><span class="s3">.</span><span class="s1">authority</span><span class="s3">, </span><span class="s1">zone_origin</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">SOA</span><span class="s3">, </span><span class="s1">create</span><span class="s3">=</span><span class="s2">True</span>
+        <span class="s3">)</span>
+        <span class="s1">rrset</span><span class="s3">.</span><span class="s1">add</span><span class="s3">(</span><span class="s1">rdata</span><span class="s3">, </span><span class="s6">0</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">keyring </span><span class="s2">is not None</span><span class="s3">:</span>
+        <span class="s1">q</span><span class="s3">.</span><span class="s1">use_tsig</span><span class="s3">(</span><span class="s1">keyring</span><span class="s3">, </span><span class="s1">keyname</span><span class="s3">, </span><span class="s1">algorithm</span><span class="s3">=</span><span class="s1">keyalgorithm</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s3">(</span><span class="s1">q</span><span class="s3">, </span><span class="s1">serial</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">extract_serial_from_query</span><span class="s3">(</span><span class="s1">query</span><span class="s3">: </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">message</span><span class="s3">.</span><span class="s1">Message</span><span class="s3">) </span><span class="s1">-&gt; Optional</span><span class="s3">[</span><span class="s1">int</span><span class="s3">]:</span>
+    <span class="s4">&quot;&quot;&quot;Extract the SOA serial number from query if it is an IXFR and return 
+    it, otherwise return None. 
+ 
+    *query* is a dns.message.QueryMessage that is an IXFR or AXFR request. 
+ 
+    Raises if the query is not an IXFR or AXFR, or if an IXFR doesn't have 
+    an appropriate SOA RRset in the authority section. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if not </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">query</span><span class="s3">, </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">message</span><span class="s3">.</span><span class="s1">QueryMessage</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;query not a QueryMessage&quot;</span><span class="s3">)</span>
+    <span class="s1">question </span><span class="s3">= </span><span class="s1">query</span><span class="s3">.</span><span class="s1">question</span><span class="s3">[</span><span class="s6">0</span><span class="s3">]</span>
+    <span class="s2">if </span><span class="s1">question</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">== </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">AXFR</span><span class="s3">:</span>
+        <span class="s2">return None</span>
+    <span class="s2">elif </span><span class="s1">question</span><span class="s3">.</span><span class="s1">rdtype </span><span class="s3">!= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">IXFR</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;query is not an AXFR or IXFR&quot;</span><span class="s3">)</span>
+    <span class="s1">soa </span><span class="s3">= </span><span class="s1">query</span><span class="s3">.</span><span class="s1">find_rrset</span><span class="s3">(</span>
+        <span class="s1">query</span><span class="s3">.</span><span class="s1">authority</span><span class="s3">, </span><span class="s1">question</span><span class="s3">.</span><span class="s1">name</span><span class="s3">, </span><span class="s1">question</span><span class="s3">.</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span><span class="s3">.</span><span class="s1">SOA</span>
+    <span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">soa</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">serial</span>
+</pre>
+</body>
+</html>

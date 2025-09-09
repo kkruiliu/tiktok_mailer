@@ -1,0 +1,111 @@
+<html>
+<head>
+<title>wire.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #2aacb8;}
+.s5 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+wire.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">import </span><span class="s1">contextlib</span>
+<span class="s2">import </span><span class="s1">struct</span>
+<span class="s2">from </span><span class="s1">typing </span><span class="s2">import </span><span class="s1">Iterator</span><span class="s3">, </span><span class="s1">Optional</span><span class="s3">, </span><span class="s1">Tuple</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span>
+
+
+<span class="s2">class </span><span class="s1">Parser</span><span class="s3">:</span>
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">wire</span><span class="s3">: </span><span class="s1">bytes</span><span class="s3">, </span><span class="s1">current</span><span class="s3">: </span><span class="s1">int </span><span class="s3">= </span><span class="s4">0</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">wire </span><span class="s3">= </span><span class="s1">wire</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">= </span><span class="s4">0</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">end </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">wire</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">current</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">seek</span><span class="s3">(</span><span class="s1">current</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">furthest </span><span class="s3">= </span><span class="s1">current</span>
+
+    <span class="s2">def </span><span class="s1">remaining</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; int</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">end </span><span class="s3">- </span><span class="s1">self</span><span class="s3">.</span><span class="s1">current</span>
+
+    <span class="s2">def </span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">size</span><span class="s3">: </span><span class="s1">int</span><span class="s3">) </span><span class="s1">-&gt; bytes</span><span class="s3">:</span>
+        <span class="s2">assert </span><span class="s1">size </span><span class="s3">&gt;= </span><span class="s4">0</span>
+        <span class="s2">if </span><span class="s1">size </span><span class="s3">&gt; </span><span class="s1">self</span><span class="s3">.</span><span class="s1">remaining</span><span class="s3">():</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span>
+        <span class="s1">output </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">wire</span><span class="s3">[</span><span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">: </span><span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">+ </span><span class="s1">size</span><span class="s3">]</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">+= </span><span class="s1">size</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">furthest </span><span class="s3">= </span><span class="s1">max</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">furthest</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">current</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">output</span>
+
+    <span class="s2">def </span><span class="s1">get_counted_bytes</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">length_size</span><span class="s3">: </span><span class="s1">int </span><span class="s3">= </span><span class="s4">1</span><span class="s3">) </span><span class="s1">-&gt; bytes</span><span class="s3">:</span>
+        <span class="s1">length </span><span class="s3">= </span><span class="s1">int</span><span class="s3">.</span><span class="s1">from_bytes</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s1">length_size</span><span class="s3">), </span><span class="s5">&quot;big&quot;</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s1">length</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">get_remaining</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; bytes</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">remaining</span><span class="s3">())</span>
+
+    <span class="s2">def </span><span class="s1">get_uint8</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; int</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s5">&quot;!B&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s4">1</span><span class="s3">))[</span><span class="s4">0</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">get_uint16</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; int</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s5">&quot;!H&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s4">2</span><span class="s3">))[</span><span class="s4">0</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">get_uint32</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; int</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s5">&quot;!I&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s4">4</span><span class="s3">))[</span><span class="s4">0</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">get_uint48</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; int</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">int</span><span class="s3">.</span><span class="s1">from_bytes</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s4">6</span><span class="s3">), </span><span class="s5">&quot;big&quot;</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">get_struct</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">format</span><span class="s3">: </span><span class="s1">str</span><span class="s3">) </span><span class="s1">-&gt; Tuple</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s1">format</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s1">struct</span><span class="s3">.</span><span class="s1">calcsize</span><span class="s3">(</span><span class="s1">format</span><span class="s3">)))</span>
+
+    <span class="s2">def </span><span class="s1">get_name</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">: </span><span class="s1">Optional</span><span class="s3">[</span><span class="s5">&quot;dns.name.Name&quot;</span><span class="s3">] = </span><span class="s2">None</span><span class="s3">) </span><span class="s1">-&gt; </span><span class="s5">&quot;dns.name.Name&quot;</span><span class="s3">:</span>
+        <span class="s1">name </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">name</span><span class="s3">.</span><span class="s1">from_wire_parser</span><span class="s3">(</span><span class="s1">self</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">origin</span><span class="s3">:</span>
+            <span class="s1">name </span><span class="s3">= </span><span class="s1">name</span><span class="s3">.</span><span class="s1">relativize</span><span class="s3">(</span><span class="s1">origin</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">name</span>
+
+    <span class="s2">def </span><span class="s1">seek</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">where</span><span class="s3">: </span><span class="s1">int</span><span class="s3">) </span><span class="s1">-&gt; </span><span class="s2">None</span><span class="s3">:</span>
+        <span class="s0"># Note that seeking to the end is OK!  (If you try to read</span>
+        <span class="s0"># after such a seek, you'll get an exception as expected.)</span>
+        <span class="s2">if </span><span class="s1">where </span><span class="s3">&lt; </span><span class="s4">0 </span><span class="s2">or </span><span class="s1">where </span><span class="s3">&gt; </span><span class="s1">self</span><span class="s3">.</span><span class="s1">end</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">= </span><span class="s1">where</span>
+
+    <span class="s3">@</span><span class="s1">contextlib</span><span class="s3">.</span><span class="s1">contextmanager</span>
+    <span class="s2">def </span><span class="s1">restrict_to</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">size</span><span class="s3">: </span><span class="s1">int</span><span class="s3">) </span><span class="s1">-&gt; Iterator</span><span class="s3">:</span>
+        <span class="s2">assert </span><span class="s1">size </span><span class="s3">&gt;= </span><span class="s4">0</span>
+        <span class="s2">if </span><span class="s1">size </span><span class="s3">&gt; </span><span class="s1">self</span><span class="s3">.</span><span class="s1">remaining</span><span class="s3">():</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span>
+        <span class="s1">saved_end </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">end</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">end </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">+ </span><span class="s1">size</span>
+            <span class="s2">yield</span>
+            <span class="s0"># We make this check here and not in the finally as we</span>
+            <span class="s0"># don't want to raise if we're already raising for some</span>
+            <span class="s0"># other reason.</span>
+            <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">!= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">end</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span>
+        <span class="s2">finally</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">end </span><span class="s3">= </span><span class="s1">saved_end</span>
+
+    <span class="s3">@</span><span class="s1">contextlib</span><span class="s3">.</span><span class="s1">contextmanager</span>
+    <span class="s2">def </span><span class="s1">restore_furthest</span><span class="s3">(</span><span class="s1">self</span><span class="s3">) </span><span class="s1">-&gt; Iterator</span><span class="s3">:</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s2">yield None</span>
+        <span class="s2">finally</span><span class="s3">:</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">current </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">furthest</span>
+</pre>
+</body>
+</html>

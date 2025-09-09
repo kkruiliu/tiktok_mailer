@@ -1,0 +1,117 @@
+<html>
+<head>
+<title>_features.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #6aab73;}
+.s5 { color: #5f826b; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_features.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">import </span><span class="s1">importlib</span><span class="s3">.</span><span class="s1">metadata</span>
+<span class="s2">import </span><span class="s1">itertools</span>
+<span class="s2">import </span><span class="s1">string</span>
+<span class="s2">from </span><span class="s1">typing </span><span class="s2">import </span><span class="s1">Dict</span><span class="s3">, </span><span class="s1">List</span><span class="s3">, </span><span class="s1">Tuple</span>
+
+
+<span class="s2">def </span><span class="s1">_tuple_from_text</span><span class="s3">(</span><span class="s1">version</span><span class="s3">: </span><span class="s1">str</span><span class="s3">) </span><span class="s1">-&gt; Tuple</span><span class="s3">:</span>
+    <span class="s1">text_parts </span><span class="s3">= </span><span class="s1">version</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s4">&quot;.&quot;</span><span class="s3">)</span>
+    <span class="s1">int_parts </span><span class="s3">= []</span>
+    <span class="s2">for </span><span class="s1">text_part </span><span class="s2">in </span><span class="s1">text_parts</span><span class="s3">:</span>
+        <span class="s1">digit_prefix </span><span class="s3">= </span><span class="s4">&quot;&quot;</span><span class="s3">.</span><span class="s1">join</span><span class="s3">(</span>
+            <span class="s1">itertools</span><span class="s3">.</span><span class="s1">takewhile</span><span class="s3">(</span><span class="s2">lambda </span><span class="s1">x</span><span class="s3">: </span><span class="s1">x </span><span class="s2">in </span><span class="s1">string</span><span class="s3">.</span><span class="s1">digits</span><span class="s3">, </span><span class="s1">text_part</span><span class="s3">)</span>
+        <span class="s3">)</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">int_parts</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">int</span><span class="s3">(</span><span class="s1">digit_prefix</span><span class="s3">))</span>
+        <span class="s2">except </span><span class="s1">Exception</span><span class="s3">:</span>
+            <span class="s2">break</span>
+    <span class="s2">return </span><span class="s1">tuple</span><span class="s3">(</span><span class="s1">int_parts</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">_version_check</span><span class="s3">(</span>
+    <span class="s1">requirement</span><span class="s3">: </span><span class="s1">str</span><span class="s3">,</span>
+<span class="s3">) </span><span class="s1">-&gt; bool</span><span class="s3">:</span>
+    <span class="s5">&quot;&quot;&quot;Is the requirement fulfilled? 
+ 
+    The requirement must be of the form 
+ 
+        package&gt;=version 
+    &quot;&quot;&quot;</span>
+    <span class="s1">package</span><span class="s3">, </span><span class="s1">minimum </span><span class="s3">= </span><span class="s1">requirement</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s4">&quot;&gt;=&quot;</span><span class="s3">)</span>
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s1">version </span><span class="s3">= </span><span class="s1">importlib</span><span class="s3">.</span><span class="s1">metadata</span><span class="s3">.</span><span class="s1">version</span><span class="s3">(</span><span class="s1">package</span><span class="s3">)</span>
+        <span class="s0"># This shouldn't happen, but it apparently can.</span>
+        <span class="s2">if </span><span class="s1">version </span><span class="s2">is None</span><span class="s3">:</span>
+            <span class="s2">return False</span>
+    <span class="s2">except </span><span class="s1">Exception</span><span class="s3">:</span>
+        <span class="s2">return False</span>
+    <span class="s1">t_version </span><span class="s3">= </span><span class="s1">_tuple_from_text</span><span class="s3">(</span><span class="s1">version</span><span class="s3">)</span>
+    <span class="s1">t_minimum </span><span class="s3">= </span><span class="s1">_tuple_from_text</span><span class="s3">(</span><span class="s1">minimum</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">t_version </span><span class="s3">&lt; </span><span class="s1">t_minimum</span><span class="s3">:</span>
+        <span class="s2">return False</span>
+    <span class="s2">return True</span>
+
+
+<span class="s1">_cache</span><span class="s3">: </span><span class="s1">Dict</span><span class="s3">[</span><span class="s1">str</span><span class="s3">, </span><span class="s1">bool</span><span class="s3">] = {}</span>
+
+
+<span class="s2">def </span><span class="s1">have</span><span class="s3">(</span><span class="s1">feature</span><span class="s3">: </span><span class="s1">str</span><span class="s3">) </span><span class="s1">-&gt; bool</span><span class="s3">:</span>
+    <span class="s5">&quot;&quot;&quot;Is *feature* available? 
+ 
+    This tests if all optional packages needed for the 
+    feature are available and recent enough. 
+ 
+    Returns ``True`` if the feature is available, 
+    and ``False`` if it is not or if metadata is 
+    missing. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">value </span><span class="s3">= </span><span class="s1">_cache</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">feature</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">value </span><span class="s2">is not None</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">value</span>
+    <span class="s1">requirements </span><span class="s3">= </span><span class="s1">_requirements</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">feature</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">requirements </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s0"># we make a cache entry here for consistency not performance</span>
+        <span class="s1">_cache</span><span class="s3">[</span><span class="s1">feature</span><span class="s3">] = </span><span class="s2">False</span>
+        <span class="s2">return False</span>
+    <span class="s1">ok </span><span class="s3">= </span><span class="s2">True</span>
+    <span class="s2">for </span><span class="s1">requirement </span><span class="s2">in </span><span class="s1">requirements</span><span class="s3">:</span>
+        <span class="s2">if not </span><span class="s1">_version_check</span><span class="s3">(</span><span class="s1">requirement</span><span class="s3">):</span>
+            <span class="s1">ok </span><span class="s3">= </span><span class="s2">False</span>
+            <span class="s2">break</span>
+    <span class="s1">_cache</span><span class="s3">[</span><span class="s1">feature</span><span class="s3">] = </span><span class="s1">ok</span>
+    <span class="s2">return </span><span class="s1">ok</span>
+
+
+<span class="s2">def </span><span class="s1">force</span><span class="s3">(</span><span class="s1">feature</span><span class="s3">: </span><span class="s1">str</span><span class="s3">, </span><span class="s1">enabled</span><span class="s3">: </span><span class="s1">bool</span><span class="s3">) </span><span class="s1">-&gt; </span><span class="s2">None</span><span class="s3">:</span>
+    <span class="s5">&quot;&quot;&quot;Force the status of *feature* to be *enabled*. 
+ 
+    This method is provided as a workaround for any cases 
+    where importlib.metadata is ineffective, or for testing. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">_cache</span><span class="s3">[</span><span class="s1">feature</span><span class="s3">] = </span><span class="s1">enabled</span>
+
+
+<span class="s1">_requirements</span><span class="s3">: </span><span class="s1">Dict</span><span class="s3">[</span><span class="s1">str</span><span class="s3">, </span><span class="s1">List</span><span class="s3">[</span><span class="s1">str</span><span class="s3">]] = {</span>
+    <span class="s0">### BEGIN generated requirements</span>
+    <span class="s4">&quot;dnssec&quot;</span><span class="s3">: [</span><span class="s4">&quot;cryptography&gt;=43&quot;</span><span class="s3">],</span>
+    <span class="s4">&quot;doh&quot;</span><span class="s3">: [</span><span class="s4">&quot;httpcore&gt;=1.0.0&quot;</span><span class="s3">, </span><span class="s4">&quot;httpx&gt;=0.26.0&quot;</span><span class="s3">, </span><span class="s4">&quot;h2&gt;=4.1.0&quot;</span><span class="s3">],</span>
+    <span class="s4">&quot;doq&quot;</span><span class="s3">: [</span><span class="s4">&quot;aioquic&gt;=1.0.0&quot;</span><span class="s3">],</span>
+    <span class="s4">&quot;idna&quot;</span><span class="s3">: [</span><span class="s4">&quot;idna&gt;=3.7&quot;</span><span class="s3">],</span>
+    <span class="s4">&quot;trio&quot;</span><span class="s3">: [</span><span class="s4">&quot;trio&gt;=0.23&quot;</span><span class="s3">],</span>
+    <span class="s4">&quot;wmi&quot;</span><span class="s3">: [</span><span class="s4">&quot;wmi&gt;=1.5.1&quot;</span><span class="s3">],</span>
+    <span class="s0">### END generated requirements</span>
+<span class="s3">}</span>
+</pre>
+</body>
+</html>

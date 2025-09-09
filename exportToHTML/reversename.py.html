@@ -1,0 +1,129 @@
+<html>
+<head>
+<title>reversename.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+reversename.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2006-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;DNS Reverse Map Names.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">binascii</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+
+<span class="s1">ipv4_reverse_domain </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s5">&quot;in-addr.arpa.&quot;</span><span class="s4">)</span>
+<span class="s1">ipv6_reverse_domain </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s5">&quot;ip6.arpa.&quot;</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">from_address</span><span class="s4">(</span>
+    <span class="s1">text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">,</span>
+    <span class="s1">v4_origin</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name </span><span class="s4">= </span><span class="s1">ipv4_reverse_domain</span><span class="s4">,</span>
+    <span class="s1">v6_origin</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name </span><span class="s4">= </span><span class="s1">ipv6_reverse_domain</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert an IPv4 or IPv6 address in textual form into a Name object whose 
+    value is the reverse-map domain name of the address. 
+ 
+    *text*, a ``str``, is an IPv4 or IPv6 address in textual form 
+    (e.g. '127.0.0.1', '::1') 
+ 
+    *v4_origin*, a ``dns.name.Name`` to append to the labels corresponding to 
+    the address if the address is an IPv4 address, instead of the default 
+    (in-addr.arpa.) 
+ 
+    *v6_origin*, a ``dns.name.Name`` to append to the labels corresponding to 
+    the address if the address is an IPv6 address, instead of the default 
+    (ip6.arpa.) 
+ 
+    Raises ``dns.exception.SyntaxError`` if the address is badly formed. 
+ 
+    Returns a ``dns.name.Name``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">try</span><span class="s4">:</span>
+        <span class="s1">v6 </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">inet_aton</span><span class="s4">(</span><span class="s1">text</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">is_mapped</span><span class="s4">(</span><span class="s1">v6</span><span class="s4">):</span>
+            <span class="s1">parts </span><span class="s4">= [</span><span class="s5">&quot;%d&quot; </span><span class="s4">% </span><span class="s1">byte </span><span class="s3">for </span><span class="s1">byte </span><span class="s3">in </span><span class="s1">v6</span><span class="s4">[</span><span class="s6">12</span><span class="s4">:]]</span>
+            <span class="s1">origin </span><span class="s4">= </span><span class="s1">v4_origin</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">parts </span><span class="s4">= [</span><span class="s1">x </span><span class="s3">for </span><span class="s1">x </span><span class="s3">in </span><span class="s1">str</span><span class="s4">(</span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">hexlify</span><span class="s4">(</span><span class="s1">v6</span><span class="s4">).</span><span class="s1">decode</span><span class="s4">())]</span>
+            <span class="s1">origin </span><span class="s4">= </span><span class="s1">v6_origin</span>
+    <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+        <span class="s1">parts </span><span class="s4">= [</span><span class="s5">&quot;%d&quot; </span><span class="s4">% </span><span class="s1">byte </span><span class="s3">for </span><span class="s1">byte </span><span class="s3">in </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">inet_aton</span><span class="s4">(</span><span class="s1">text</span><span class="s4">)]</span>
+        <span class="s1">origin </span><span class="s4">= </span><span class="s1">v4_origin</span>
+    <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s5">&quot;.&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">reversed</span><span class="s4">(</span><span class="s1">parts</span><span class="s4">)), </span><span class="s1">origin</span><span class="s4">=</span><span class="s1">origin</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">to_address</span><span class="s4">(</span>
+    <span class="s1">name</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">,</span>
+    <span class="s1">v4_origin</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name </span><span class="s4">= </span><span class="s1">ipv4_reverse_domain</span><span class="s4">,</span>
+    <span class="s1">v6_origin</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name </span><span class="s4">= </span><span class="s1">ipv6_reverse_domain</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert a reverse map domain name into textual address form. 
+ 
+    *name*, a ``dns.name.Name``, an IPv4 or IPv6 address in reverse-map name 
+    form. 
+ 
+    *v4_origin*, a ``dns.name.Name`` representing the top-level domain for 
+    IPv4 addresses, instead of the default (in-addr.arpa.) 
+ 
+    *v6_origin*, a ``dns.name.Name`` representing the top-level domain for 
+    IPv4 addresses, instead of the default (ip6.arpa.) 
+ 
+    Raises ``dns.exception.SyntaxError`` if the name does not have a 
+    reverse-map form. 
+ 
+    Returns a ``str``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">name</span><span class="s4">.</span><span class="s1">is_subdomain</span><span class="s4">(</span><span class="s1">v4_origin</span><span class="s4">):</span>
+        <span class="s1">name </span><span class="s4">= </span><span class="s1">name</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">(</span><span class="s1">v4_origin</span><span class="s4">)</span>
+        <span class="s1">text </span><span class="s4">= </span><span class="s7">b&quot;.&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">reversed</span><span class="s4">(</span><span class="s1">name</span><span class="s4">.</span><span class="s1">labels</span><span class="s4">))</span>
+        <span class="s0"># run through inet_ntoa() to check syntax and make pretty.</span>
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">inet_aton</span><span class="s4">(</span><span class="s1">text</span><span class="s4">))</span>
+    <span class="s3">elif </span><span class="s1">name</span><span class="s4">.</span><span class="s1">is_subdomain</span><span class="s4">(</span><span class="s1">v6_origin</span><span class="s4">):</span>
+        <span class="s1">name </span><span class="s4">= </span><span class="s1">name</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">(</span><span class="s1">v6_origin</span><span class="s4">)</span>
+        <span class="s1">labels </span><span class="s4">= </span><span class="s1">list</span><span class="s4">(</span><span class="s1">reversed</span><span class="s4">(</span><span class="s1">name</span><span class="s4">.</span><span class="s1">labels</span><span class="s4">))</span>
+        <span class="s1">parts </span><span class="s4">= []</span>
+        <span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">range</span><span class="s4">(</span><span class="s6">0</span><span class="s4">, </span><span class="s1">len</span><span class="s4">(</span><span class="s1">labels</span><span class="s4">), </span><span class="s6">4</span><span class="s4">):</span>
+            <span class="s1">parts</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s7">b&quot;&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">labels</span><span class="s4">[</span><span class="s1">i </span><span class="s4">: </span><span class="s1">i </span><span class="s4">+ </span><span class="s6">4</span><span class="s4">]))</span>
+        <span class="s1">text </span><span class="s4">= </span><span class="s7">b&quot;:&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">parts</span><span class="s4">)</span>
+        <span class="s0"># run through inet_ntoa() to check syntax and make pretty.</span>
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">inet_aton</span><span class="s4">(</span><span class="s1">text</span><span class="s4">))</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;unknown reverse-map address family&quot;</span><span class="s4">)</span>
+</pre>
+</body>
+</html>

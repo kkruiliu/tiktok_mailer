@@ -1,0 +1,341 @@
+<html>
+<head>
+<title>versioned.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+versioned.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">&quot;&quot;&quot;DNS Versioned Zones.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">collections</span>
+<span class="s3">import </span><span class="s1">threading</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Callable</span><span class="s4">, </span><span class="s1">Deque</span><span class="s4">, </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Set</span><span class="s4">, </span><span class="s1">Union</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">immutable</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdtypes</span><span class="s4">.</span><span class="s1">ANY</span><span class="s4">.</span><span class="s1">SOA</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span>
+
+
+<span class="s3">class </span><span class="s1">UseTransaction</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;To alter a versioned zone, use a transaction.&quot;&quot;&quot;</span>
+
+
+<span class="s0"># Backwards compatibility</span>
+<span class="s1">Node </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">VersionedNode</span>
+<span class="s1">ImmutableNode </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">ImmutableVersionedNode</span>
+<span class="s1">Version </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">Version</span>
+<span class="s1">WritableVersion </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">WritableVersion</span>
+<span class="s1">ImmutableVersion </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">ImmutableVersion</span>
+<span class="s1">Transaction </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">Transaction</span>
+
+
+<span class="s3">class </span><span class="s1">Zone</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">Zone</span><span class="s4">):  </span><span class="s0"># lgtm[py/missing-equals]</span>
+    <span class="s1">__slots__ </span><span class="s4">= [</span>
+        <span class="s5">&quot;_versions&quot;</span><span class="s4">,</span>
+        <span class="s5">&quot;_versions_lock&quot;</span><span class="s4">,</span>
+        <span class="s5">&quot;_write_txn&quot;</span><span class="s4">,</span>
+        <span class="s5">&quot;_write_waiters&quot;</span><span class="s4">,</span>
+        <span class="s5">&quot;_write_event&quot;</span><span class="s4">,</span>
+        <span class="s5">&quot;_pruning_policy&quot;</span><span class="s4">,</span>
+        <span class="s5">&quot;_readers&quot;</span><span class="s4">,</span>
+    <span class="s4">]</span>
+
+    <span class="s1">node_factory </span><span class="s4">= </span><span class="s1">Node</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]],</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+        <span class="s1">relativize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+        <span class="s1">pruning_policy</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Callable</span><span class="s4">[[</span><span class="s5">&quot;Zone&quot;</span><span class="s4">, </span><span class="s1">Version</span><span class="s4">], </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">]]] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Initialize a versioned zone object. 
+ 
+        *origin* is the origin of the zone.  It may be a ``dns.name.Name``, 
+        a ``str``, or ``None``.  If ``None``, then the zone's origin will 
+        be set by the first ``$ORIGIN`` line in a zone file. 
+ 
+        *rdclass*, an ``int``, the zone's rdata class; the default is class IN. 
+ 
+        *relativize*, a ``bool``, determine's whether domain names are 
+        relativized to the zone's origin.  The default is ``True``. 
+ 
+        *pruning policy*, a function taking a ``Zone`` and a ``Version`` and returning 
+        a ``bool``, or ``None``.  Should the version be pruned?  If ``None``, 
+        the default policy, which retains one version is used. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">: </span><span class="s1">Deque</span><span class="s4">[</span><span class="s1">Version</span><span class="s4">] = </span><span class="s1">collections</span><span class="s4">.</span><span class="s1">deque</span><span class="s4">()</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_version_lock </span><span class="s4">= </span><span class="s1">threading</span><span class="s4">.</span><span class="s1">Lock</span><span class="s4">()</span>
+        <span class="s3">if </span><span class="s1">pruning_policy </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_pruning_policy </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_default_pruning_policy</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_pruning_policy </span><span class="s4">= </span><span class="s1">pruning_policy</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_txn</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Transaction</span><span class="s4">] = </span><span class="s3">None</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_event</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">threading</span><span class="s4">.</span><span class="s1">Event</span><span class="s4">] = </span><span class="s3">None</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_waiters</span><span class="s4">: </span><span class="s1">Deque</span><span class="s4">[</span><span class="s1">threading</span><span class="s4">.</span><span class="s1">Event</span><span class="s4">] = </span><span class="s1">collections</span><span class="s4">.</span><span class="s1">deque</span><span class="s4">()</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_readers</span><span class="s4">: </span><span class="s1">Set</span><span class="s4">[</span><span class="s1">Transaction</span><span class="s4">] = </span><span class="s1">set</span><span class="s4">()</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_commit_version_unlocked</span><span class="s4">(</span>
+            <span class="s3">None</span><span class="s4">, </span><span class="s1">WritableVersion</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">=</span><span class="s3">True</span><span class="s4">), </span><span class="s1">origin</span>
+        <span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">reader</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">, </span><span class="s1">id</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">, </span><span class="s1">serial</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">] = </span><span class="s3">None</span>
+    <span class="s4">) </span><span class="s1">-&gt; Transaction</span><span class="s4">:  </span><span class="s0"># pylint: disable=arguments-differ</span>
+        <span class="s3">if </span><span class="s1">id </span><span class="s3">is not None and </span><span class="s1">serial </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s5">&quot;cannot specify both id and serial&quot;</span><span class="s4">)</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_version_lock</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">id </span><span class="s3">is not None</span><span class="s4">:</span>
+                <span class="s1">version </span><span class="s4">= </span><span class="s3">None</span>
+                <span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">reversed</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">):</span>
+                    <span class="s3">if </span><span class="s1">v</span><span class="s4">.</span><span class="s1">id </span><span class="s4">== </span><span class="s1">id</span><span class="s4">:</span>
+                        <span class="s1">version </span><span class="s4">= </span><span class="s1">v</span>
+                        <span class="s3">break</span>
+                <span class="s3">if </span><span class="s1">version </span><span class="s3">is None</span><span class="s4">:</span>
+                    <span class="s3">raise </span><span class="s1">KeyError</span><span class="s4">(</span><span class="s5">&quot;version not found&quot;</span><span class="s4">)</span>
+            <span class="s3">elif </span><span class="s1">serial </span><span class="s3">is not None</span><span class="s4">:</span>
+                <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">:</span>
+                    <span class="s1">oname </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">empty</span>
+                <span class="s3">else</span><span class="s4">:</span>
+                    <span class="s3">assert </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin </span><span class="s3">is not None</span>
+                    <span class="s1">oname </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin</span>
+                <span class="s1">version </span><span class="s4">= </span><span class="s3">None</span>
+                <span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">reversed</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">):</span>
+                    <span class="s1">n </span><span class="s4">= </span><span class="s1">v</span><span class="s4">.</span><span class="s1">nodes</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s1">oname</span><span class="s4">)</span>
+                    <span class="s3">if </span><span class="s1">n</span><span class="s4">:</span>
+                        <span class="s1">rds </span><span class="s4">= </span><span class="s1">n</span><span class="s4">.</span><span class="s1">get_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">SOA</span><span class="s4">)</span>
+                        <span class="s3">if </span><span class="s1">rds </span><span class="s3">and </span><span class="s1">rds</span><span class="s4">[</span><span class="s6">0</span><span class="s4">].</span><span class="s1">serial </span><span class="s4">== </span><span class="s1">serial</span><span class="s4">:</span>
+                            <span class="s1">version </span><span class="s4">= </span><span class="s1">v</span>
+                            <span class="s3">break</span>
+                <span class="s3">if </span><span class="s1">version </span><span class="s3">is None</span><span class="s4">:</span>
+                    <span class="s3">raise </span><span class="s1">KeyError</span><span class="s4">(</span><span class="s5">&quot;serial not found&quot;</span><span class="s4">)</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">version </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">[-</span><span class="s6">1</span><span class="s4">]</span>
+            <span class="s1">txn </span><span class="s4">= </span><span class="s1">Transaction</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s3">False</span><span class="s4">, </span><span class="s1">version</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_readers</span><span class="s4">.</span><span class="s1">add</span><span class="s4">(</span><span class="s1">txn</span><span class="s4">)</span>
+            <span class="s3">return </span><span class="s1">txn</span>
+
+    <span class="s3">def </span><span class="s1">writer</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">) </span><span class="s1">-&gt; Transaction</span><span class="s4">:</span>
+        <span class="s1">event </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s3">while True</span><span class="s4">:</span>
+            <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_version_lock</span><span class="s4">:</span>
+                <span class="s0"># Checking event == self._write_event ensures that either</span>
+                <span class="s0"># no one was waiting before we got lucky and found no write</span>
+                <span class="s0"># txn, or we were the one who was waiting and got woken up.</span>
+                <span class="s0"># This prevents &quot;taking cuts&quot; when creating a write txn.</span>
+                <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_write_txn </span><span class="s3">is None and </span><span class="s1">event </span><span class="s4">== </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_write_event</span><span class="s4">:</span>
+                    <span class="s0"># Creating the transaction defers version setup</span>
+                    <span class="s0"># (i.e.  copying the nodes dictionary) until we</span>
+                    <span class="s0"># give up the lock, so that we hold the lock as</span>
+                    <span class="s0"># short a time as possible.  This is why we call</span>
+                    <span class="s0"># _setup_version() below.</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_txn </span><span class="s4">= </span><span class="s1">Transaction</span><span class="s4">(</span>
+                        <span class="s1">self</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">, </span><span class="s1">make_immutable</span><span class="s4">=</span><span class="s3">True</span>
+                    <span class="s4">)</span>
+                    <span class="s0"># give up our exclusive right to make a Transaction</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_event </span><span class="s4">= </span><span class="s3">None</span>
+                    <span class="s3">break</span>
+                <span class="s0"># Someone else is writing already, so we will have to</span>
+                <span class="s0"># wait, but we want to do the actual wait outside the</span>
+                <span class="s0"># lock.</span>
+                <span class="s1">event </span><span class="s4">= </span><span class="s1">threading</span><span class="s4">.</span><span class="s1">Event</span><span class="s4">()</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_waiters</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">event</span><span class="s4">)</span>
+            <span class="s0"># wait (note we gave up the lock!)</span>
+            <span class="s0">#</span>
+            <span class="s0"># We only wake one sleeper at a time, so it's important</span>
+            <span class="s0"># that no event waiter can exit this method (e.g. via</span>
+            <span class="s0"># cancellation) without returning a transaction or waking</span>
+            <span class="s0"># someone else up.</span>
+            <span class="s0">#</span>
+            <span class="s0"># This is not a problem with Threading module threads as</span>
+            <span class="s0"># they cannot be canceled, but could be an issue with trio</span>
+            <span class="s0"># tasks when we do the async version of writer().</span>
+            <span class="s0"># I.e. we'd need to do something like:</span>
+            <span class="s0">#</span>
+            <span class="s0"># try:</span>
+            <span class="s0">#     event.wait()</span>
+            <span class="s0"># except trio.Cancelled:</span>
+            <span class="s0">#     with self._version_lock:</span>
+            <span class="s0">#         self._maybe_wakeup_one_waiter_unlocked()</span>
+            <span class="s0">#     raise</span>
+            <span class="s0">#</span>
+            <span class="s1">event</span><span class="s4">.</span><span class="s1">wait</span><span class="s4">()</span>
+        <span class="s0"># Do the deferred version setup.</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_txn</span><span class="s4">.</span><span class="s1">_setup_version</span><span class="s4">()</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_write_txn</span>
+
+    <span class="s3">def </span><span class="s1">_maybe_wakeup_one_waiter_unlocked</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_write_waiters</span><span class="s4">) &gt; </span><span class="s6">0</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_event </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_write_waiters</span><span class="s4">.</span><span class="s1">popleft</span><span class="s4">()</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_event</span><span class="s4">.</span><span class="s1">set</span><span class="s4">()</span>
+
+    <span class="s0"># pylint: disable=unused-argument</span>
+    <span class="s3">def </span><span class="s1">_default_pruning_policy</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">zone</span><span class="s4">, </span><span class="s1">version</span><span class="s4">):</span>
+        <span class="s3">return True</span>
+
+    <span class="s0"># pylint: enable=unused-argument</span>
+
+    <span class="s3">def </span><span class="s1">_prune_versions_unlocked</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">assert </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">) &gt; </span><span class="s6">0</span>
+        <span class="s0"># Don't ever prune a version greater than or equal to one that</span>
+        <span class="s0"># a reader has open.  This pins versions in memory while the</span>
+        <span class="s0"># reader is open, and importantly lets the reader open a txn on</span>
+        <span class="s0"># a successor version (e.g. if generating an IXFR).</span>
+        <span class="s0">#</span>
+        <span class="s0"># Note our definition of least_kept also ensures we do not try to</span>
+        <span class="s0"># delete the greatest version.</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_readers</span><span class="s4">) &gt; </span><span class="s6">0</span><span class="s4">:</span>
+            <span class="s1">least_kept </span><span class="s4">= </span><span class="s1">min</span><span class="s4">(</span><span class="s1">txn</span><span class="s4">.</span><span class="s1">version</span><span class="s4">.</span><span class="s1">id </span><span class="s3">for </span><span class="s1">txn </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_readers</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">least_kept </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">[-</span><span class="s6">1</span><span class="s4">].</span><span class="s1">id</span>
+        <span class="s3">while </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">[</span><span class="s6">0</span><span class="s4">].</span><span class="s1">id </span><span class="s4">&lt; </span><span class="s1">least_kept </span><span class="s3">and </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_pruning_policy</span><span class="s4">(</span>
+            <span class="s1">self</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">[</span><span class="s6">0</span><span class="s4">]</span>
+        <span class="s4">):</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">.</span><span class="s1">popleft</span><span class="s4">()</span>
+
+    <span class="s3">def </span><span class="s1">set_max_versions</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">max_versions</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">]) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Set a pruning policy that retains up to the specified number 
+        of versions 
+        &quot;&quot;&quot;</span>
+        <span class="s3">if </span><span class="s1">max_versions </span><span class="s3">is not None and </span><span class="s1">max_versions </span><span class="s4">&lt; </span><span class="s6">1</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s5">&quot;max versions must be at least 1&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">max_versions </span><span class="s3">is None</span><span class="s4">:</span>
+
+            <span class="s3">def </span><span class="s1">policy</span><span class="s4">(</span><span class="s1">zone</span><span class="s4">, </span><span class="s1">_</span><span class="s4">):  </span><span class="s0"># pylint: disable=unused-argument</span>
+                <span class="s3">return False</span>
+
+        <span class="s3">else</span><span class="s4">:</span>
+
+            <span class="s3">def </span><span class="s1">policy</span><span class="s4">(</span><span class="s1">zone</span><span class="s4">, </span><span class="s1">_</span><span class="s4">):</span>
+                <span class="s3">return </span><span class="s1">len</span><span class="s4">(</span><span class="s1">zone</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">) &gt; </span><span class="s1">max_versions</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">set_pruning_policy</span><span class="s4">(</span><span class="s1">policy</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">set_pruning_policy</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">, </span><span class="s1">policy</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Callable</span><span class="s4">[[</span><span class="s5">&quot;Zone&quot;</span><span class="s4">, </span><span class="s1">Version</span><span class="s4">], </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">]]]</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Set the pruning policy for the zone. 
+ 
+        The *policy* function takes a `Version` and returns `True` if 
+        the version should be pruned, and `False` otherwise.  `None` 
+        may also be specified for policy, in which case the default policy 
+        is used. 
+ 
+        Pruning checking proceeds from the least version and the first 
+        time the function returns `False`, the checking stops.  I.e. the 
+        retained versions are always a consecutive sequence. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">if </span><span class="s1">policy </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">policy </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_default_pruning_policy</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_version_lock</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_pruning_policy </span><span class="s4">= </span><span class="s1">policy</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_prune_versions_unlocked</span><span class="s4">()</span>
+
+    <span class="s3">def </span><span class="s1">_end_read</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">txn</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_version_lock</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_readers</span><span class="s4">.</span><span class="s1">remove</span><span class="s4">(</span><span class="s1">txn</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_prune_versions_unlocked</span><span class="s4">()</span>
+
+    <span class="s3">def </span><span class="s1">_end_write_unlocked</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">txn</span><span class="s4">):</span>
+        <span class="s3">assert </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_write_txn </span><span class="s4">== </span><span class="s1">txn</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_write_txn </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_maybe_wakeup_one_waiter_unlocked</span><span class="s4">()</span>
+
+    <span class="s3">def </span><span class="s1">_end_write</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">txn</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_version_lock</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_end_write_unlocked</span><span class="s4">(</span><span class="s1">txn</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_commit_version_unlocked</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">txn</span><span class="s4">, </span><span class="s1">version</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">version</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">_prune_versions_unlocked</span><span class="s4">()</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">nodes </span><span class="s4">= </span><span class="s1">version</span><span class="s4">.</span><span class="s1">nodes</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">origin </span><span class="s4">= </span><span class="s1">origin</span>
+        <span class="s0"># txn can be None in __init__ when we make the empty version.</span>
+        <span class="s3">if </span><span class="s1">txn </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_end_write_unlocked</span><span class="s4">(</span><span class="s1">txn</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_commit_version</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">txn</span><span class="s4">, </span><span class="s1">version</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">):</span>
+        <span class="s3">with </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_version_lock</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">_commit_version_unlocked</span><span class="s4">(</span><span class="s1">txn</span><span class="s4">, </span><span class="s1">version</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_get_next_version_id</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">) &gt; </span><span class="s6">0</span><span class="s4">:</span>
+            <span class="s1">id </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_versions</span><span class="s4">[-</span><span class="s6">1</span><span class="s4">].</span><span class="s1">id </span><span class="s4">+ </span><span class="s6">1</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">id </span><span class="s4">= </span><span class="s6">1</span>
+        <span class="s3">return </span><span class="s1">id</span>
+
+    <span class="s3">def </span><span class="s1">find_node</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">create</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span>
+    <span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">node</span><span class="s4">.</span><span class="s1">Node</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">create</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">UseTransaction</span>
+        <span class="s3">return </span><span class="s1">super</span><span class="s4">().</span><span class="s1">find_node</span><span class="s4">(</span><span class="s1">name</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">delete_node</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">UseTransaction</span>
+
+    <span class="s3">def </span><span class="s1">find_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+        <span class="s1">create</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">create</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">UseTransaction</span>
+        <span class="s1">rdataset </span><span class="s4">= </span><span class="s1">super</span><span class="s4">().</span><span class="s1">find_rdataset</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">ImmutableRdataset</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">get_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+        <span class="s1">create</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span><span class="s4">]:</span>
+        <span class="s3">if </span><span class="s1">create</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">UseTransaction</span>
+        <span class="s1">rdataset </span><span class="s4">= </span><span class="s1">super</span><span class="s4">().</span><span class="s1">get_rdataset</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">rdataset </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">ImmutableRdataset</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return None</span>
+
+    <span class="s3">def </span><span class="s1">delete_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">covers</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">NONE</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">UseTransaction</span>
+
+    <span class="s3">def </span><span class="s1">replace_rdataset</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">replacement</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">Rdataset</span>
+    <span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">UseTransaction</span>
+</pre>
+</body>
+</html>

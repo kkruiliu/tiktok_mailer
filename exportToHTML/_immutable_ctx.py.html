@@ -1,0 +1,99 @@
+<html>
+<head>
+<title>_immutable_ctx.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #6aab73;}
+.s5 { color: #5f826b; font-style: italic;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_immutable_ctx.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># This implementation of the immutable decorator requires python &gt;=</span>
+<span class="s0"># 3.7, and is significantly more storage efficient when making classes</span>
+<span class="s0"># with slots immutable.  It's also faster.</span>
+
+<span class="s2">import </span><span class="s1">contextvars</span>
+<span class="s2">import </span><span class="s1">inspect</span>
+
+<span class="s1">_in__init__ </span><span class="s3">= </span><span class="s1">contextvars</span><span class="s3">.</span><span class="s1">ContextVar</span><span class="s3">(</span><span class="s4">&quot;_immutable_in__init__&quot;</span><span class="s3">, </span><span class="s1">default</span><span class="s3">=</span><span class="s2">False</span><span class="s3">)</span>
+
+
+<span class="s2">class </span><span class="s1">_Immutable</span><span class="s3">:</span>
+    <span class="s5">&quot;&quot;&quot;Immutable mixin class&quot;&quot;&quot;</span>
+
+    <span class="s0"># We set slots to the empty list to say &quot;we don't have any attributes&quot;.</span>
+    <span class="s0"># We do this so that if we're mixed in with a class with __slots__, we</span>
+    <span class="s0"># don't cause a __dict__ to be added which would waste space.</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= ()</span>
+
+    <span class="s2">def </span><span class="s1">__setattr__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">name</span><span class="s3">, </span><span class="s1">value</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">_in__init__</span><span class="s3">.</span><span class="s1">get</span><span class="s3">() </span><span class="s2">is not </span><span class="s1">self</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">TypeError</span><span class="s3">(</span><span class="s4">&quot;object doesn't support attribute assignment&quot;</span><span class="s3">)</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">__setattr__</span><span class="s3">(</span><span class="s1">name</span><span class="s3">, </span><span class="s1">value</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">__delattr__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">name</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">_in__init__</span><span class="s3">.</span><span class="s1">get</span><span class="s3">() </span><span class="s2">is not </span><span class="s1">self</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">TypeError</span><span class="s3">(</span><span class="s4">&quot;object doesn't support attribute assignment&quot;</span><span class="s3">)</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">super</span><span class="s3">().</span><span class="s1">__delattr__</span><span class="s3">(</span><span class="s1">name</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">_immutable_init</span><span class="s3">(</span><span class="s1">f</span><span class="s3">):</span>
+    <span class="s2">def </span><span class="s1">nf</span><span class="s3">(*</span><span class="s1">args</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+        <span class="s1">previous </span><span class="s3">= </span><span class="s1">_in__init__</span><span class="s3">.</span><span class="s1">set</span><span class="s3">(</span><span class="s1">args</span><span class="s3">[</span><span class="s6">0</span><span class="s3">])</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s0"># call the actual __init__</span>
+            <span class="s1">f</span><span class="s3">(*</span><span class="s1">args</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+        <span class="s2">finally</span><span class="s3">:</span>
+            <span class="s1">_in__init__</span><span class="s3">.</span><span class="s1">reset</span><span class="s3">(</span><span class="s1">previous</span><span class="s3">)</span>
+
+    <span class="s1">nf</span><span class="s3">.</span><span class="s1">__signature__ </span><span class="s3">= </span><span class="s1">inspect</span><span class="s3">.</span><span class="s1">signature</span><span class="s3">(</span><span class="s1">f</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">nf</span>
+
+
+<span class="s2">def </span><span class="s1">immutable</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">):</span>
+    <span class="s2">if </span><span class="s1">_Immutable </span><span class="s2">in </span><span class="s1">cls</span><span class="s3">.</span><span class="s1">__mro__</span><span class="s3">:</span>
+        <span class="s0"># Some ancestor already has the mixin, so just make sure we keep</span>
+        <span class="s0"># following the __init__ protocol.</span>
+        <span class="s1">cls</span><span class="s3">.</span><span class="s1">__init__ </span><span class="s3">= </span><span class="s1">_immutable_init</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">.</span><span class="s1">__init__</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s4">&quot;__setstate__&quot;</span><span class="s3">):</span>
+            <span class="s1">cls</span><span class="s3">.</span><span class="s1">__setstate__ </span><span class="s3">= </span><span class="s1">_immutable_init</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">.</span><span class="s1">__setstate__</span><span class="s3">)</span>
+        <span class="s1">ncls </span><span class="s3">= </span><span class="s1">cls</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s0"># Mixin the Immutable class and follow the __init__ protocol.</span>
+        <span class="s2">class </span><span class="s1">ncls</span><span class="s3">(</span><span class="s1">_Immutable</span><span class="s3">, </span><span class="s1">cls</span><span class="s3">):</span>
+            <span class="s0"># We have to do the __slots__ declaration here too!</span>
+            <span class="s1">__slots__ </span><span class="s3">= ()</span>
+
+            <span class="s3">@</span><span class="s1">_immutable_init</span>
+            <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, *</span><span class="s1">args</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+                <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(*</span><span class="s1">args</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+            <span class="s2">if </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s4">&quot;__setstate__&quot;</span><span class="s3">):</span>
+
+                <span class="s3">@</span><span class="s1">_immutable_init</span>
+                <span class="s2">def </span><span class="s1">__setstate__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, *</span><span class="s1">args</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">):</span>
+                    <span class="s1">super</span><span class="s3">().</span><span class="s1">__setstate__</span><span class="s3">(*</span><span class="s1">args</span><span class="s3">, **</span><span class="s1">kwargs</span><span class="s3">)</span>
+
+        <span class="s0"># make ncls have the same name and module as cls</span>
+        <span class="s1">ncls</span><span class="s3">.</span><span class="s1">__name__ </span><span class="s3">= </span><span class="s1">cls</span><span class="s3">.</span><span class="s1">__name__</span>
+        <span class="s1">ncls</span><span class="s3">.</span><span class="s1">__qualname__ </span><span class="s3">= </span><span class="s1">cls</span><span class="s3">.</span><span class="s1">__qualname__</span>
+        <span class="s1">ncls</span><span class="s3">.</span><span class="s1">__module__ </span><span class="s3">= </span><span class="s1">cls</span><span class="s3">.</span><span class="s1">__module__</span>
+    <span class="s2">return </span><span class="s1">ncls</span>
+</pre>
+</body>
+</html>

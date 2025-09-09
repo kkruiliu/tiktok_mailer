@@ -1,0 +1,1120 @@
+<html>
+<head>
+<title>utils.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #5f826b; font-style: italic;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #7a7e85;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+utils.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+requests.utils 
+~~~~~~~~~~~~~~ 
+ 
+This module provides utility functions that are used within Requests 
+that are also useful for external consumption. 
+&quot;&quot;&quot;</span>
+
+<span class="s2">import </span><span class="s1">codecs</span>
+<span class="s2">import </span><span class="s1">contextlib</span>
+<span class="s2">import </span><span class="s1">io</span>
+<span class="s2">import </span><span class="s1">os</span>
+<span class="s2">import </span><span class="s1">re</span>
+<span class="s2">import </span><span class="s1">socket</span>
+<span class="s2">import </span><span class="s1">struct</span>
+<span class="s2">import </span><span class="s1">sys</span>
+<span class="s2">import </span><span class="s1">tempfile</span>
+<span class="s2">import </span><span class="s1">warnings</span>
+<span class="s2">import </span><span class="s1">zipfile</span>
+<span class="s2">from </span><span class="s1">collections </span><span class="s2">import </span><span class="s1">OrderedDict</span>
+
+<span class="s2">from </span><span class="s1">pip</span><span class="s3">.</span><span class="s1">_vendor</span><span class="s3">.</span><span class="s1">urllib3</span><span class="s3">.</span><span class="s1">util </span><span class="s2">import </span><span class="s1">make_headers</span><span class="s3">, </span><span class="s1">parse_url</span>
+
+<span class="s2">from </span><span class="s3">. </span><span class="s2">import </span><span class="s1">certs</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">__version__ </span><span class="s2">import </span><span class="s1">__version__</span>
+
+<span class="s4"># to_native_string is unused here, but imported here for backwards compatibility</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">_internal_utils </span><span class="s2">import </span><span class="s3">(  </span><span class="s4"># noqa: F401</span>
+    <span class="s1">_HEADER_VALIDATORS_BYTE</span><span class="s3">,</span>
+    <span class="s1">_HEADER_VALIDATORS_STR</span><span class="s3">,</span>
+    <span class="s1">HEADER_VALIDATORS</span><span class="s3">,</span>
+    <span class="s1">to_native_string</span><span class="s3">,</span>
+<span class="s3">)</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">compat </span><span class="s2">import </span><span class="s3">(</span>
+    <span class="s1">Mapping</span><span class="s3">,</span>
+    <span class="s1">basestring</span><span class="s3">,</span>
+    <span class="s1">bytes</span><span class="s3">,</span>
+    <span class="s1">getproxies</span><span class="s3">,</span>
+    <span class="s1">getproxies_environment</span><span class="s3">,</span>
+    <span class="s1">integer_types</span><span class="s3">,</span>
+<span class="s3">)</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">compat </span><span class="s2">import </span><span class="s1">parse_http_list </span><span class="s2">as </span><span class="s1">_parse_list_header</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">compat </span><span class="s2">import </span><span class="s3">(</span>
+    <span class="s1">proxy_bypass</span><span class="s3">,</span>
+    <span class="s1">proxy_bypass_environment</span><span class="s3">,</span>
+    <span class="s1">quote</span><span class="s3">,</span>
+    <span class="s1">str</span><span class="s3">,</span>
+    <span class="s1">unquote</span><span class="s3">,</span>
+    <span class="s1">urlparse</span><span class="s3">,</span>
+    <span class="s1">urlunparse</span><span class="s3">,</span>
+<span class="s3">)</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">cookies </span><span class="s2">import </span><span class="s1">cookiejar_from_dict</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">exceptions </span><span class="s2">import </span><span class="s3">(</span>
+    <span class="s1">FileModeWarning</span><span class="s3">,</span>
+    <span class="s1">InvalidHeader</span><span class="s3">,</span>
+    <span class="s1">InvalidURL</span><span class="s3">,</span>
+    <span class="s1">UnrewindableBodyError</span><span class="s3">,</span>
+<span class="s3">)</span>
+<span class="s2">from </span><span class="s3">.</span><span class="s1">structures </span><span class="s2">import </span><span class="s1">CaseInsensitiveDict</span>
+
+<span class="s1">NETRC_FILES </span><span class="s3">= (</span><span class="s5">&quot;.netrc&quot;</span><span class="s3">, </span><span class="s5">&quot;_netrc&quot;</span><span class="s3">)</span>
+
+<span class="s1">DEFAULT_CA_BUNDLE_PATH </span><span class="s3">= </span><span class="s1">certs</span><span class="s3">.</span><span class="s1">where</span><span class="s3">()</span>
+
+<span class="s1">DEFAULT_PORTS </span><span class="s3">= {</span><span class="s5">&quot;http&quot;</span><span class="s3">: </span><span class="s6">80</span><span class="s3">, </span><span class="s5">&quot;https&quot;</span><span class="s3">: </span><span class="s6">443</span><span class="s3">}</span>
+
+<span class="s4"># Ensure that ', ' is used to preserve previous delimiter behavior.</span>
+<span class="s1">DEFAULT_ACCEPT_ENCODING </span><span class="s3">= </span><span class="s5">&quot;, &quot;</span><span class="s3">.</span><span class="s1">join</span><span class="s3">(</span>
+    <span class="s1">re</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">r&quot;,\s*&quot;</span><span class="s3">, </span><span class="s1">make_headers</span><span class="s3">(</span><span class="s1">accept_encoding</span><span class="s3">=</span><span class="s2">True</span><span class="s3">)[</span><span class="s5">&quot;accept-encoding&quot;</span><span class="s3">])</span>
+<span class="s3">)</span>
+
+
+<span class="s2">if </span><span class="s1">sys</span><span class="s3">.</span><span class="s1">platform </span><span class="s3">== </span><span class="s5">&quot;win32&quot;</span><span class="s3">:</span>
+    <span class="s4"># provide a proxy_bypass version on Windows without DNS lookups</span>
+
+    <span class="s2">def </span><span class="s1">proxy_bypass_registry</span><span class="s3">(</span><span class="s1">host</span><span class="s3">):</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s2">import </span><span class="s1">winreg</span>
+        <span class="s2">except </span><span class="s1">ImportError</span><span class="s3">:</span>
+            <span class="s2">return False</span>
+
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">internetSettings </span><span class="s3">= </span><span class="s1">winreg</span><span class="s3">.</span><span class="s1">OpenKey</span><span class="s3">(</span>
+                <span class="s1">winreg</span><span class="s3">.</span><span class="s1">HKEY_CURRENT_USER</span><span class="s3">,</span>
+                <span class="s5">r&quot;Software\Microsoft\Windows\CurrentVersion\Internet Settings&quot;</span><span class="s3">,</span>
+            <span class="s3">)</span>
+            <span class="s4"># ProxyEnable could be REG_SZ or REG_DWORD, normalizing it</span>
+            <span class="s1">proxyEnable </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">winreg</span><span class="s3">.</span><span class="s1">QueryValueEx</span><span class="s3">(</span><span class="s1">internetSettings</span><span class="s3">, </span><span class="s5">&quot;ProxyEnable&quot;</span><span class="s3">)[</span><span class="s6">0</span><span class="s3">])</span>
+            <span class="s4"># ProxyOverride is almost always a string</span>
+            <span class="s1">proxyOverride </span><span class="s3">= </span><span class="s1">winreg</span><span class="s3">.</span><span class="s1">QueryValueEx</span><span class="s3">(</span><span class="s1">internetSettings</span><span class="s3">, </span><span class="s5">&quot;ProxyOverride&quot;</span><span class="s3">)[</span><span class="s6">0</span><span class="s3">]</span>
+        <span class="s2">except </span><span class="s3">(</span><span class="s1">OSError</span><span class="s3">, </span><span class="s1">ValueError</span><span class="s3">):</span>
+            <span class="s2">return False</span>
+        <span class="s2">if not </span><span class="s1">proxyEnable </span><span class="s2">or not </span><span class="s1">proxyOverride</span><span class="s3">:</span>
+            <span class="s2">return False</span>
+
+        <span class="s4"># make a check value list from the registry entry: replace the</span>
+        <span class="s4"># '&lt;local&gt;' string by the localhost entry and the corresponding</span>
+        <span class="s4"># canonical entry.</span>
+        <span class="s1">proxyOverride </span><span class="s3">= </span><span class="s1">proxyOverride</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;;&quot;</span><span class="s3">)</span>
+        <span class="s4"># filter out empty strings to avoid re.match return true in the following code.</span>
+        <span class="s1">proxyOverride </span><span class="s3">= </span><span class="s1">filter</span><span class="s3">(</span><span class="s2">None</span><span class="s3">, </span><span class="s1">proxyOverride</span><span class="s3">)</span>
+        <span class="s4"># now check if we match one of the registry values.</span>
+        <span class="s2">for </span><span class="s1">test </span><span class="s2">in </span><span class="s1">proxyOverride</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">test </span><span class="s3">== </span><span class="s5">&quot;&lt;local&gt;&quot;</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s5">&quot;.&quot; </span><span class="s2">not in </span><span class="s1">host</span><span class="s3">:</span>
+                    <span class="s2">return True</span>
+            <span class="s1">test </span><span class="s3">= </span><span class="s1">test</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s5">&quot;.&quot;</span><span class="s3">, </span><span class="s5">r&quot;\.&quot;</span><span class="s3">)  </span><span class="s4"># mask dots</span>
+            <span class="s1">test </span><span class="s3">= </span><span class="s1">test</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s5">&quot;*&quot;</span><span class="s3">, </span><span class="s5">r&quot;.*&quot;</span><span class="s3">)  </span><span class="s4"># change glob sequence</span>
+            <span class="s1">test </span><span class="s3">= </span><span class="s1">test</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s5">&quot;?&quot;</span><span class="s3">, </span><span class="s5">r&quot;.&quot;</span><span class="s3">)  </span><span class="s4"># change glob char</span>
+            <span class="s2">if </span><span class="s1">re</span><span class="s3">.</span><span class="s1">match</span><span class="s3">(</span><span class="s1">test</span><span class="s3">, </span><span class="s1">host</span><span class="s3">, </span><span class="s1">re</span><span class="s3">.</span><span class="s1">I</span><span class="s3">):</span>
+                <span class="s2">return True</span>
+        <span class="s2">return False</span>
+
+    <span class="s2">def </span><span class="s1">proxy_bypass</span><span class="s3">(</span><span class="s1">host</span><span class="s3">):  </span><span class="s4"># noqa</span>
+        <span class="s0">&quot;&quot;&quot;Return True, if the host should be bypassed. 
+ 
+        Checks proxy settings gathered from the environment, if specified, 
+        or the registry. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">getproxies_environment</span><span class="s3">():</span>
+            <span class="s2">return </span><span class="s1">proxy_bypass_environment</span><span class="s3">(</span><span class="s1">host</span><span class="s3">)</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s1">proxy_bypass_registry</span><span class="s3">(</span><span class="s1">host</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">dict_to_sequence</span><span class="s3">(</span><span class="s1">d</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns an internal sequence dictionary update.&quot;&quot;&quot;</span>
+
+    <span class="s2">if </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">d</span><span class="s3">, </span><span class="s5">&quot;items&quot;</span><span class="s3">):</span>
+        <span class="s1">d </span><span class="s3">= </span><span class="s1">d</span><span class="s3">.</span><span class="s1">items</span><span class="s3">()</span>
+
+    <span class="s2">return </span><span class="s1">d</span>
+
+
+<span class="s2">def </span><span class="s1">super_len</span><span class="s3">(</span><span class="s1">o</span><span class="s3">):</span>
+    <span class="s1">total_length </span><span class="s3">= </span><span class="s2">None</span>
+    <span class="s1">current_position </span><span class="s3">= </span><span class="s6">0</span>
+
+    <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">o</span><span class="s3">, </span><span class="s1">str</span><span class="s3">):</span>
+        <span class="s1">o </span><span class="s3">= </span><span class="s1">o</span><span class="s3">.</span><span class="s1">encode</span><span class="s3">(</span><span class="s5">&quot;utf-8&quot;</span><span class="s3">)</span>
+
+    <span class="s2">if </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">o</span><span class="s3">, </span><span class="s5">&quot;__len__&quot;</span><span class="s3">):</span>
+        <span class="s1">total_length </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">o</span><span class="s3">)</span>
+
+    <span class="s2">elif </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">o</span><span class="s3">, </span><span class="s5">&quot;len&quot;</span><span class="s3">):</span>
+        <span class="s1">total_length </span><span class="s3">= </span><span class="s1">o</span><span class="s3">.</span><span class="s1">len</span>
+
+    <span class="s2">elif </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">o</span><span class="s3">, </span><span class="s5">&quot;fileno&quot;</span><span class="s3">):</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">fileno </span><span class="s3">= </span><span class="s1">o</span><span class="s3">.</span><span class="s1">fileno</span><span class="s3">()</span>
+        <span class="s2">except </span><span class="s3">(</span><span class="s1">io</span><span class="s3">.</span><span class="s1">UnsupportedOperation</span><span class="s3">, </span><span class="s1">AttributeError</span><span class="s3">):</span>
+            <span class="s4"># AttributeError is a surprising exception, seeing as how we've just checked</span>
+            <span class="s4"># that `hasattr(o, 'fileno')`.  It happens for objects obtained via</span>
+            <span class="s4"># `Tarfile.extractfile()`, per issue 5229.</span>
+            <span class="s2">pass</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">total_length </span><span class="s3">= </span><span class="s1">os</span><span class="s3">.</span><span class="s1">fstat</span><span class="s3">(</span><span class="s1">fileno</span><span class="s3">).</span><span class="s1">st_size</span>
+
+            <span class="s4"># Having used fstat to determine the file length, we need to</span>
+            <span class="s4"># confirm that this file was opened up in binary mode.</span>
+            <span class="s2">if </span><span class="s5">&quot;b&quot; </span><span class="s2">not in </span><span class="s1">o</span><span class="s3">.</span><span class="s1">mode</span><span class="s3">:</span>
+                <span class="s1">warnings</span><span class="s3">.</span><span class="s1">warn</span><span class="s3">(</span>
+                    <span class="s3">(</span>
+                        <span class="s5">&quot;Requests has determined the content-length for this &quot;</span>
+                        <span class="s5">&quot;request using the binary size of the file: however, the &quot;</span>
+                        <span class="s5">&quot;file has been opened in text mode (i.e. without the 'b' &quot;</span>
+                        <span class="s5">&quot;flag in the mode). This may lead to an incorrect &quot;</span>
+                        <span class="s5">&quot;content-length. In Requests 3.0, support will be removed &quot;</span>
+                        <span class="s5">&quot;for files in text mode.&quot;</span>
+                    <span class="s3">),</span>
+                    <span class="s1">FileModeWarning</span><span class="s3">,</span>
+                <span class="s3">)</span>
+
+    <span class="s2">if </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">o</span><span class="s3">, </span><span class="s5">&quot;tell&quot;</span><span class="s3">):</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">current_position </span><span class="s3">= </span><span class="s1">o</span><span class="s3">.</span><span class="s1">tell</span><span class="s3">()</span>
+        <span class="s2">except </span><span class="s1">OSError</span><span class="s3">:</span>
+            <span class="s4"># This can happen in some weird situations, such as when the file</span>
+            <span class="s4"># is actually a special file descriptor like stdin. In this</span>
+            <span class="s4"># instance, we don't know what the length is, so set it to zero and</span>
+            <span class="s4"># let requests chunk it instead.</span>
+            <span class="s2">if </span><span class="s1">total_length </span><span class="s2">is not None</span><span class="s3">:</span>
+                <span class="s1">current_position </span><span class="s3">= </span><span class="s1">total_length</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">hasattr</span><span class="s3">(</span><span class="s1">o</span><span class="s3">, </span><span class="s5">&quot;seek&quot;</span><span class="s3">) </span><span class="s2">and </span><span class="s1">total_length </span><span class="s2">is None</span><span class="s3">:</span>
+                <span class="s4"># StringIO and BytesIO have seek but no usable fileno</span>
+                <span class="s2">try</span><span class="s3">:</span>
+                    <span class="s4"># seek to end of file</span>
+                    <span class="s1">o</span><span class="s3">.</span><span class="s1">seek</span><span class="s3">(</span><span class="s6">0</span><span class="s3">, </span><span class="s6">2</span><span class="s3">)</span>
+                    <span class="s1">total_length </span><span class="s3">= </span><span class="s1">o</span><span class="s3">.</span><span class="s1">tell</span><span class="s3">()</span>
+
+                    <span class="s4"># seek back to current position to support</span>
+                    <span class="s4"># partially read file-like objects</span>
+                    <span class="s1">o</span><span class="s3">.</span><span class="s1">seek</span><span class="s3">(</span><span class="s1">current_position </span><span class="s2">or </span><span class="s6">0</span><span class="s3">)</span>
+                <span class="s2">except </span><span class="s1">OSError</span><span class="s3">:</span>
+                    <span class="s1">total_length </span><span class="s3">= </span><span class="s6">0</span>
+
+    <span class="s2">if </span><span class="s1">total_length </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s1">total_length </span><span class="s3">= </span><span class="s6">0</span>
+
+    <span class="s2">return </span><span class="s1">max</span><span class="s3">(</span><span class="s6">0</span><span class="s3">, </span><span class="s1">total_length </span><span class="s3">- </span><span class="s1">current_position</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">get_netrc_auth</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">raise_errors</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns the Requests tuple auth for a given url from netrc.&quot;&quot;&quot;</span>
+
+    <span class="s1">netrc_file </span><span class="s3">= </span><span class="s1">os</span><span class="s3">.</span><span class="s1">environ</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s5">&quot;NETRC&quot;</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">netrc_file </span><span class="s2">is not None</span><span class="s3">:</span>
+        <span class="s1">netrc_locations </span><span class="s3">= (</span><span class="s1">netrc_file</span><span class="s3">,)</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s1">netrc_locations </span><span class="s3">= (</span><span class="s5">f&quot;~/</span><span class="s2">{</span><span class="s1">f</span><span class="s2">}</span><span class="s5">&quot; </span><span class="s2">for </span><span class="s1">f </span><span class="s2">in </span><span class="s1">NETRC_FILES</span><span class="s3">)</span>
+
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s2">from </span><span class="s1">netrc </span><span class="s2">import </span><span class="s1">NetrcParseError</span><span class="s3">, </span><span class="s1">netrc</span>
+
+        <span class="s1">netrc_path </span><span class="s3">= </span><span class="s2">None</span>
+
+        <span class="s2">for </span><span class="s1">f </span><span class="s2">in </span><span class="s1">netrc_locations</span><span class="s3">:</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">loc </span><span class="s3">= </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">expanduser</span><span class="s3">(</span><span class="s1">f</span><span class="s3">)</span>
+            <span class="s2">except </span><span class="s1">KeyError</span><span class="s3">:</span>
+                <span class="s4"># os.path.expanduser can fail when $HOME is undefined and</span>
+                <span class="s4"># getpwuid fails. See https://bugs.python.org/issue20164 &amp;</span>
+                <span class="s4"># https://github.com/psf/requests/issues/1846</span>
+                <span class="s2">return</span>
+
+            <span class="s2">if </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">exists</span><span class="s3">(</span><span class="s1">loc</span><span class="s3">):</span>
+                <span class="s1">netrc_path </span><span class="s3">= </span><span class="s1">loc</span>
+                <span class="s2">break</span>
+
+        <span class="s4"># Abort early if there isn't one.</span>
+        <span class="s2">if </span><span class="s1">netrc_path </span><span class="s2">is None</span><span class="s3">:</span>
+            <span class="s2">return</span>
+
+        <span class="s1">ri </span><span class="s3">= </span><span class="s1">urlparse</span><span class="s3">(</span><span class="s1">url</span><span class="s3">)</span>
+
+        <span class="s4"># Strip port numbers from netloc. This weird `if...encode`` dance is</span>
+        <span class="s4"># used for Python 3.2, which doesn't support unicode literals.</span>
+        <span class="s1">splitstr </span><span class="s3">= </span><span class="s7">b&quot;:&quot;</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">str</span><span class="s3">):</span>
+            <span class="s1">splitstr </span><span class="s3">= </span><span class="s1">splitstr</span><span class="s3">.</span><span class="s1">decode</span><span class="s3">(</span><span class="s5">&quot;ascii&quot;</span><span class="s3">)</span>
+        <span class="s1">host </span><span class="s3">= </span><span class="s1">ri</span><span class="s3">.</span><span class="s1">netloc</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s1">splitstr</span><span class="s3">)[</span><span class="s6">0</span><span class="s3">]</span>
+
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">_netrc </span><span class="s3">= </span><span class="s1">netrc</span><span class="s3">(</span><span class="s1">netrc_path</span><span class="s3">).</span><span class="s1">authenticators</span><span class="s3">(</span><span class="s1">host</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">_netrc</span><span class="s3">:</span>
+                <span class="s4"># Return with login / password</span>
+                <span class="s1">login_i </span><span class="s3">= </span><span class="s6">0 </span><span class="s2">if </span><span class="s1">_netrc</span><span class="s3">[</span><span class="s6">0</span><span class="s3">] </span><span class="s2">else </span><span class="s6">1</span>
+                <span class="s2">return </span><span class="s3">(</span><span class="s1">_netrc</span><span class="s3">[</span><span class="s1">login_i</span><span class="s3">], </span><span class="s1">_netrc</span><span class="s3">[</span><span class="s6">2</span><span class="s3">])</span>
+        <span class="s2">except </span><span class="s3">(</span><span class="s1">NetrcParseError</span><span class="s3">, </span><span class="s1">OSError</span><span class="s3">):</span>
+            <span class="s4"># If there was a parsing error or a permissions issue reading the file,</span>
+            <span class="s4"># we'll just skip netrc auth unless explicitly asked to raise errors.</span>
+            <span class="s2">if </span><span class="s1">raise_errors</span><span class="s3">:</span>
+                <span class="s2">raise</span>
+
+    <span class="s4"># App Engine hackiness.</span>
+    <span class="s2">except </span><span class="s3">(</span><span class="s1">ImportError</span><span class="s3">, </span><span class="s1">AttributeError</span><span class="s3">):</span>
+        <span class="s2">pass</span>
+
+
+<span class="s2">def </span><span class="s1">guess_filename</span><span class="s3">(</span><span class="s1">obj</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Tries to guess the filename of the given object.&quot;&quot;&quot;</span>
+    <span class="s1">name </span><span class="s3">= </span><span class="s1">getattr</span><span class="s3">(</span><span class="s1">obj</span><span class="s3">, </span><span class="s5">&quot;name&quot;</span><span class="s3">, </span><span class="s2">None</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">name </span><span class="s2">and </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">name</span><span class="s3">, </span><span class="s1">basestring</span><span class="s3">) </span><span class="s2">and </span><span class="s1">name</span><span class="s3">[</span><span class="s6">0</span><span class="s3">] != </span><span class="s5">&quot;&lt;&quot; </span><span class="s2">and </span><span class="s1">name</span><span class="s3">[-</span><span class="s6">1</span><span class="s3">] != </span><span class="s5">&quot;&gt;&quot;</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">basename</span><span class="s3">(</span><span class="s1">name</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">extract_zipped_paths</span><span class="s3">(</span><span class="s1">path</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Replace nonexistent paths that look like they refer to a member of a zip 
+    archive with the location of an extracted copy of the target, or else 
+    just return the provided path unchanged. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">exists</span><span class="s3">(</span><span class="s1">path</span><span class="s3">):</span>
+        <span class="s4"># this is already a valid path, no need to do anything further</span>
+        <span class="s2">return </span><span class="s1">path</span>
+
+    <span class="s4"># find the first valid part of the provided path and treat that as a zip archive</span>
+    <span class="s4"># assume the rest of the path is the name of a member in the archive</span>
+    <span class="s1">archive</span><span class="s3">, </span><span class="s1">member </span><span class="s3">= </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s1">path</span><span class="s3">)</span>
+    <span class="s2">while </span><span class="s1">archive </span><span class="s2">and not </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">exists</span><span class="s3">(</span><span class="s1">archive</span><span class="s3">):</span>
+        <span class="s1">archive</span><span class="s3">, </span><span class="s1">prefix </span><span class="s3">= </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s1">archive</span><span class="s3">)</span>
+        <span class="s2">if not </span><span class="s1">prefix</span><span class="s3">:</span>
+            <span class="s4"># If we don't check for an empty prefix after the split (in other words, archive remains unchanged after the split),</span>
+            <span class="s4"># we _can_ end up in an infinite loop on a rare corner case affecting a small number of users</span>
+            <span class="s2">break</span>
+        <span class="s1">member </span><span class="s3">= </span><span class="s5">&quot;/&quot;</span><span class="s3">.</span><span class="s1">join</span><span class="s3">([</span><span class="s1">prefix</span><span class="s3">, </span><span class="s1">member</span><span class="s3">])</span>
+
+    <span class="s2">if not </span><span class="s1">zipfile</span><span class="s3">.</span><span class="s1">is_zipfile</span><span class="s3">(</span><span class="s1">archive</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">path</span>
+
+    <span class="s1">zip_file </span><span class="s3">= </span><span class="s1">zipfile</span><span class="s3">.</span><span class="s1">ZipFile</span><span class="s3">(</span><span class="s1">archive</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">member </span><span class="s2">not in </span><span class="s1">zip_file</span><span class="s3">.</span><span class="s1">namelist</span><span class="s3">():</span>
+        <span class="s2">return </span><span class="s1">path</span>
+
+    <span class="s4"># we have a valid zip archive and a valid member of that archive</span>
+    <span class="s1">tmp </span><span class="s3">= </span><span class="s1">tempfile</span><span class="s3">.</span><span class="s1">gettempdir</span><span class="s3">()</span>
+    <span class="s1">extracted_path </span><span class="s3">= </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">join</span><span class="s3">(</span><span class="s1">tmp</span><span class="s3">, </span><span class="s1">member</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;/&quot;</span><span class="s3">)[-</span><span class="s6">1</span><span class="s3">])</span>
+    <span class="s2">if not </span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">exists</span><span class="s3">(</span><span class="s1">extracted_path</span><span class="s3">):</span>
+        <span class="s4"># use read + write to avoid the creating nested folders, we only want the file, avoids mkdir racing condition</span>
+        <span class="s2">with </span><span class="s1">atomic_open</span><span class="s3">(</span><span class="s1">extracted_path</span><span class="s3">) </span><span class="s2">as </span><span class="s1">file_handler</span><span class="s3">:</span>
+            <span class="s1">file_handler</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">zip_file</span><span class="s3">.</span><span class="s1">read</span><span class="s3">(</span><span class="s1">member</span><span class="s3">))</span>
+    <span class="s2">return </span><span class="s1">extracted_path</span>
+
+
+<span class="s3">@</span><span class="s1">contextlib</span><span class="s3">.</span><span class="s1">contextmanager</span>
+<span class="s2">def </span><span class="s1">atomic_open</span><span class="s3">(</span><span class="s1">filename</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Write a file to the disk in an atomic fashion&quot;&quot;&quot;</span>
+    <span class="s1">tmp_descriptor</span><span class="s3">, </span><span class="s1">tmp_name </span><span class="s3">= </span><span class="s1">tempfile</span><span class="s3">.</span><span class="s1">mkstemp</span><span class="s3">(</span><span class="s1">dir</span><span class="s3">=</span><span class="s1">os</span><span class="s3">.</span><span class="s1">path</span><span class="s3">.</span><span class="s1">dirname</span><span class="s3">(</span><span class="s1">filename</span><span class="s3">))</span>
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s2">with </span><span class="s1">os</span><span class="s3">.</span><span class="s1">fdopen</span><span class="s3">(</span><span class="s1">tmp_descriptor</span><span class="s3">, </span><span class="s5">&quot;wb&quot;</span><span class="s3">) </span><span class="s2">as </span><span class="s1">tmp_handler</span><span class="s3">:</span>
+            <span class="s2">yield </span><span class="s1">tmp_handler</span>
+        <span class="s1">os</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s1">tmp_name</span><span class="s3">, </span><span class="s1">filename</span><span class="s3">)</span>
+    <span class="s2">except </span><span class="s1">BaseException</span><span class="s3">:</span>
+        <span class="s1">os</span><span class="s3">.</span><span class="s1">remove</span><span class="s3">(</span><span class="s1">tmp_name</span><span class="s3">)</span>
+        <span class="s2">raise</span>
+
+
+<span class="s2">def </span><span class="s1">from_key_val_list</span><span class="s3">(</span><span class="s1">value</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Take an object and test to see if it can be represented as a 
+    dictionary. Unless it can not be represented as such, return an 
+    OrderedDict, e.g., 
+ 
+    :: 
+ 
+        &gt;&gt;&gt; from_key_val_list([('key', 'val')]) 
+        OrderedDict([('key', 'val')]) 
+        &gt;&gt;&gt; from_key_val_list('string') 
+        Traceback (most recent call last): 
+        ... 
+        ValueError: cannot encode objects that are not 2-tuples 
+        &gt;&gt;&gt; from_key_val_list({'key': 'val'}) 
+        OrderedDict([('key', 'val')]) 
+ 
+    :rtype: OrderedDict 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">value </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s2">return None</span>
+
+    <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">value</span><span class="s3">, (</span><span class="s1">str</span><span class="s3">, </span><span class="s1">bytes</span><span class="s3">, </span><span class="s1">bool</span><span class="s3">, </span><span class="s1">int</span><span class="s3">)):</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;cannot encode objects that are not 2-tuples&quot;</span><span class="s3">)</span>
+
+    <span class="s2">return </span><span class="s1">OrderedDict</span><span class="s3">(</span><span class="s1">value</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">to_key_val_list</span><span class="s3">(</span><span class="s1">value</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Take an object and test to see if it can be represented as a 
+    dictionary. If it can be, return a list of tuples, e.g., 
+ 
+    :: 
+ 
+        &gt;&gt;&gt; to_key_val_list([('key', 'val')]) 
+        [('key', 'val')] 
+        &gt;&gt;&gt; to_key_val_list({'key': 'val'}) 
+        [('key', 'val')] 
+        &gt;&gt;&gt; to_key_val_list('string') 
+        Traceback (most recent call last): 
+        ... 
+        ValueError: cannot encode objects that are not 2-tuples 
+ 
+    :rtype: list 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">value </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s2">return None</span>
+
+    <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">value</span><span class="s3">, (</span><span class="s1">str</span><span class="s3">, </span><span class="s1">bytes</span><span class="s3">, </span><span class="s1">bool</span><span class="s3">, </span><span class="s1">int</span><span class="s3">)):</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;cannot encode objects that are not 2-tuples&quot;</span><span class="s3">)</span>
+
+    <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">value</span><span class="s3">, </span><span class="s1">Mapping</span><span class="s3">):</span>
+        <span class="s1">value </span><span class="s3">= </span><span class="s1">value</span><span class="s3">.</span><span class="s1">items</span><span class="s3">()</span>
+
+    <span class="s2">return </span><span class="s1">list</span><span class="s3">(</span><span class="s1">value</span><span class="s3">)</span>
+
+
+<span class="s4"># From mitsuhiko/werkzeug (used with permission).</span>
+<span class="s2">def </span><span class="s1">parse_list_header</span><span class="s3">(</span><span class="s1">value</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Parse lists as described by RFC 2068 Section 2. 
+ 
+    In particular, parse comma-separated lists where the elements of 
+    the list may include quoted-strings.  A quoted-string could 
+    contain a comma.  A non-quoted string could have quotes in the 
+    middle.  Quotes are removed automatically after parsing. 
+ 
+    It basically works like :func:`parse_set_header` just that items 
+    may appear multiple times and case sensitivity is preserved. 
+ 
+    The return value is a standard :class:`list`: 
+ 
+    &gt;&gt;&gt; parse_list_header('token, &quot;quoted value&quot;') 
+    ['token', 'quoted value'] 
+ 
+    To create a header from the :class:`list` again, use the 
+    :func:`dump_header` function. 
+ 
+    :param value: a string with a list header. 
+    :return: :class:`list` 
+    :rtype: list 
+    &quot;&quot;&quot;</span>
+    <span class="s1">result </span><span class="s3">= []</span>
+    <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">_parse_list_header</span><span class="s3">(</span><span class="s1">value</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">item</span><span class="s3">[:</span><span class="s6">1</span><span class="s3">] == </span><span class="s1">item</span><span class="s3">[-</span><span class="s6">1</span><span class="s3">:] == </span><span class="s5">'&quot;'</span><span class="s3">:</span>
+            <span class="s1">item </span><span class="s3">= </span><span class="s1">unquote_header_value</span><span class="s3">(</span><span class="s1">item</span><span class="s3">[</span><span class="s6">1</span><span class="s3">:-</span><span class="s6">1</span><span class="s3">])</span>
+        <span class="s1">result</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">item</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">result</span>
+
+
+<span class="s4"># From mitsuhiko/werkzeug (used with permission).</span>
+<span class="s2">def </span><span class="s1">parse_dict_header</span><span class="s3">(</span><span class="s1">value</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Parse lists of key, value pairs as described by RFC 2068 Section 2 and 
+    convert them into a python dict: 
+ 
+    &gt;&gt;&gt; d = parse_dict_header('foo=&quot;is a fish&quot;, bar=&quot;as well&quot;') 
+    &gt;&gt;&gt; type(d) is dict 
+    True 
+    &gt;&gt;&gt; sorted(d.items()) 
+    [('bar', 'as well'), ('foo', 'is a fish')] 
+ 
+    If there is no value for a key it will be `None`: 
+ 
+    &gt;&gt;&gt; parse_dict_header('key_without_value') 
+    {'key_without_value': None} 
+ 
+    To create a header from the :class:`dict` again, use the 
+    :func:`dump_header` function. 
+ 
+    :param value: a string with a dict header. 
+    :return: :class:`dict` 
+    :rtype: dict 
+    &quot;&quot;&quot;</span>
+    <span class="s1">result </span><span class="s3">= {}</span>
+    <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">_parse_list_header</span><span class="s3">(</span><span class="s1">value</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s5">&quot;=&quot; </span><span class="s2">not in </span><span class="s1">item</span><span class="s3">:</span>
+            <span class="s1">result</span><span class="s3">[</span><span class="s1">item</span><span class="s3">] = </span><span class="s2">None</span>
+            <span class="s2">continue</span>
+        <span class="s1">name</span><span class="s3">, </span><span class="s1">value </span><span class="s3">= </span><span class="s1">item</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;=&quot;</span><span class="s3">, </span><span class="s6">1</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">value</span><span class="s3">[:</span><span class="s6">1</span><span class="s3">] == </span><span class="s1">value</span><span class="s3">[-</span><span class="s6">1</span><span class="s3">:] == </span><span class="s5">'&quot;'</span><span class="s3">:</span>
+            <span class="s1">value </span><span class="s3">= </span><span class="s1">unquote_header_value</span><span class="s3">(</span><span class="s1">value</span><span class="s3">[</span><span class="s6">1</span><span class="s3">:-</span><span class="s6">1</span><span class="s3">])</span>
+        <span class="s1">result</span><span class="s3">[</span><span class="s1">name</span><span class="s3">] = </span><span class="s1">value</span>
+    <span class="s2">return </span><span class="s1">result</span>
+
+
+<span class="s4"># From mitsuhiko/werkzeug (used with permission).</span>
+<span class="s2">def </span><span class="s1">unquote_header_value</span><span class="s3">(</span><span class="s1">value</span><span class="s3">, </span><span class="s1">is_filename</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+    <span class="s0">r&quot;&quot;&quot;Unquotes a header value.  (Reversal of :func:`quote_header_value`). 
+    This does not use the real unquoting but what browsers are actually 
+    using for quoting. 
+ 
+    :param value: the header value to unquote. 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">value </span><span class="s2">and </span><span class="s1">value</span><span class="s3">[</span><span class="s6">0</span><span class="s3">] == </span><span class="s1">value</span><span class="s3">[-</span><span class="s6">1</span><span class="s3">] == </span><span class="s5">'&quot;'</span><span class="s3">:</span>
+        <span class="s4"># this is not the real unquoting, but fixing this so that the</span>
+        <span class="s4"># RFC is met will result in bugs with internet explorer and</span>
+        <span class="s4"># probably some other browsers as well.  IE for example is</span>
+        <span class="s4"># uploading files with &quot;C:\foo\bar.txt&quot; as filename</span>
+        <span class="s1">value </span><span class="s3">= </span><span class="s1">value</span><span class="s3">[</span><span class="s6">1</span><span class="s3">:-</span><span class="s6">1</span><span class="s3">]</span>
+
+        <span class="s4"># if this is a filename and the starting characters look like</span>
+        <span class="s4"># a UNC path, then just return the value without quotes.  Using the</span>
+        <span class="s4"># replace sequence below on a UNC path has the effect of turning</span>
+        <span class="s4"># the leading double slash into a single slash and then</span>
+        <span class="s4"># _fix_ie_filename() doesn't work correctly.  See #458.</span>
+        <span class="s2">if not </span><span class="s1">is_filename </span><span class="s2">or </span><span class="s1">value</span><span class="s3">[:</span><span class="s6">2</span><span class="s3">] != </span><span class="s5">&quot;</span><span class="s2">\\\\</span><span class="s5">&quot;</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s1">value</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s5">&quot;</span><span class="s2">\\\\</span><span class="s5">&quot;</span><span class="s3">, </span><span class="s5">&quot;</span><span class="s2">\\</span><span class="s5">&quot;</span><span class="s3">).</span><span class="s1">replace</span><span class="s3">(</span><span class="s5">'</span><span class="s2">\\</span><span class="s5">&quot;'</span><span class="s3">, </span><span class="s5">'&quot;'</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">value</span>
+
+
+<span class="s2">def </span><span class="s1">dict_from_cookiejar</span><span class="s3">(</span><span class="s1">cj</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns a key/value dictionary from a CookieJar. 
+ 
+    :param cj: CookieJar object to extract cookies from. 
+    :rtype: dict 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">cookie_dict </span><span class="s3">= {</span><span class="s1">cookie</span><span class="s3">.</span><span class="s1">name</span><span class="s3">: </span><span class="s1">cookie</span><span class="s3">.</span><span class="s1">value </span><span class="s2">for </span><span class="s1">cookie </span><span class="s2">in </span><span class="s1">cj</span><span class="s3">}</span>
+    <span class="s2">return </span><span class="s1">cookie_dict</span>
+
+
+<span class="s2">def </span><span class="s1">add_dict_to_cookiejar</span><span class="s3">(</span><span class="s1">cj</span><span class="s3">, </span><span class="s1">cookie_dict</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns a CookieJar from a key/value dictionary. 
+ 
+    :param cj: CookieJar to insert cookies into. 
+    :param cookie_dict: Dict of key/values to insert into CookieJar. 
+    :rtype: CookieJar 
+    &quot;&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">cookiejar_from_dict</span><span class="s3">(</span><span class="s1">cookie_dict</span><span class="s3">, </span><span class="s1">cj</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">get_encodings_from_content</span><span class="s3">(</span><span class="s1">content</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns encodings from given content string. 
+ 
+    :param content: bytestring to extract encodings from. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">warnings</span><span class="s3">.</span><span class="s1">warn</span><span class="s3">(</span>
+        <span class="s3">(</span>
+            <span class="s5">&quot;In requests 3.0, get_encodings_from_content will be removed. For &quot;</span>
+            <span class="s5">&quot;more information, please see the discussion on issue #2266. (This&quot;</span>
+            <span class="s5">&quot; warning should only appear once.)&quot;</span>
+        <span class="s3">),</span>
+        <span class="s1">DeprecationWarning</span><span class="s3">,</span>
+    <span class="s3">)</span>
+
+    <span class="s1">charset_re </span><span class="s3">= </span><span class="s1">re</span><span class="s3">.</span><span class="s1">compile</span><span class="s3">(</span><span class="s5">r'&lt;meta.*?charset=[&quot;\']*(.+?)[&quot;\'&gt;]'</span><span class="s3">, </span><span class="s1">flags</span><span class="s3">=</span><span class="s1">re</span><span class="s3">.</span><span class="s1">I</span><span class="s3">)</span>
+    <span class="s1">pragma_re </span><span class="s3">= </span><span class="s1">re</span><span class="s3">.</span><span class="s1">compile</span><span class="s3">(</span><span class="s5">r'&lt;meta.*?content=[&quot;\']*;?charset=(.+?)[&quot;\'&gt;]'</span><span class="s3">, </span><span class="s1">flags</span><span class="s3">=</span><span class="s1">re</span><span class="s3">.</span><span class="s1">I</span><span class="s3">)</span>
+    <span class="s1">xml_re </span><span class="s3">= </span><span class="s1">re</span><span class="s3">.</span><span class="s1">compile</span><span class="s3">(</span><span class="s5">r'^&lt;\?xml.*?encoding=[&quot;\']*(.+?)[&quot;\'&gt;]'</span><span class="s3">)</span>
+
+    <span class="s2">return </span><span class="s3">(</span>
+        <span class="s1">charset_re</span><span class="s3">.</span><span class="s1">findall</span><span class="s3">(</span><span class="s1">content</span><span class="s3">)</span>
+        <span class="s3">+ </span><span class="s1">pragma_re</span><span class="s3">.</span><span class="s1">findall</span><span class="s3">(</span><span class="s1">content</span><span class="s3">)</span>
+        <span class="s3">+ </span><span class="s1">xml_re</span><span class="s3">.</span><span class="s1">findall</span><span class="s3">(</span><span class="s1">content</span><span class="s3">)</span>
+    <span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">_parse_content_type_header</span><span class="s3">(</span><span class="s1">header</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns content type and parameters from given header 
+ 
+    :param header: string 
+    :return: tuple containing content type and dictionary of 
+         parameters 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">tokens </span><span class="s3">= </span><span class="s1">header</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;;&quot;</span><span class="s3">)</span>
+    <span class="s1">content_type</span><span class="s3">, </span><span class="s1">params </span><span class="s3">= </span><span class="s1">tokens</span><span class="s3">[</span><span class="s6">0</span><span class="s3">].</span><span class="s1">strip</span><span class="s3">(), </span><span class="s1">tokens</span><span class="s3">[</span><span class="s6">1</span><span class="s3">:]</span>
+    <span class="s1">params_dict </span><span class="s3">= {}</span>
+    <span class="s1">items_to_strip </span><span class="s3">= </span><span class="s5">&quot;</span><span class="s2">\&quot;</span><span class="s5">' &quot;</span>
+
+    <span class="s2">for </span><span class="s1">param </span><span class="s2">in </span><span class="s1">params</span><span class="s3">:</span>
+        <span class="s1">param </span><span class="s3">= </span><span class="s1">param</span><span class="s3">.</span><span class="s1">strip</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">param</span><span class="s3">:</span>
+            <span class="s1">key</span><span class="s3">, </span><span class="s1">value </span><span class="s3">= </span><span class="s1">param</span><span class="s3">, </span><span class="s2">True</span>
+            <span class="s1">index_of_equals </span><span class="s3">= </span><span class="s1">param</span><span class="s3">.</span><span class="s1">find</span><span class="s3">(</span><span class="s5">&quot;=&quot;</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">index_of_equals </span><span class="s3">!= -</span><span class="s6">1</span><span class="s3">:</span>
+                <span class="s1">key </span><span class="s3">= </span><span class="s1">param</span><span class="s3">[:</span><span class="s1">index_of_equals</span><span class="s3">].</span><span class="s1">strip</span><span class="s3">(</span><span class="s1">items_to_strip</span><span class="s3">)</span>
+                <span class="s1">value </span><span class="s3">= </span><span class="s1">param</span><span class="s3">[</span><span class="s1">index_of_equals </span><span class="s3">+ </span><span class="s6">1 </span><span class="s3">:].</span><span class="s1">strip</span><span class="s3">(</span><span class="s1">items_to_strip</span><span class="s3">)</span>
+            <span class="s1">params_dict</span><span class="s3">[</span><span class="s1">key</span><span class="s3">.</span><span class="s1">lower</span><span class="s3">()] = </span><span class="s1">value</span>
+    <span class="s2">return </span><span class="s1">content_type</span><span class="s3">, </span><span class="s1">params_dict</span>
+
+
+<span class="s2">def </span><span class="s1">get_encoding_from_headers</span><span class="s3">(</span><span class="s1">headers</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns encodings from given HTTP Header Dict. 
+ 
+    :param headers: dictionary to extract encoding from. 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">content_type </span><span class="s3">= </span><span class="s1">headers</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s5">&quot;content-type&quot;</span><span class="s3">)</span>
+
+    <span class="s2">if not </span><span class="s1">content_type</span><span class="s3">:</span>
+        <span class="s2">return None</span>
+
+    <span class="s1">content_type</span><span class="s3">, </span><span class="s1">params </span><span class="s3">= </span><span class="s1">_parse_content_type_header</span><span class="s3">(</span><span class="s1">content_type</span><span class="s3">)</span>
+
+    <span class="s2">if </span><span class="s5">&quot;charset&quot; </span><span class="s2">in </span><span class="s1">params</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">params</span><span class="s3">[</span><span class="s5">&quot;charset&quot;</span><span class="s3">].</span><span class="s1">strip</span><span class="s3">(</span><span class="s5">&quot;'</span><span class="s2">\&quot;</span><span class="s5">&quot;</span><span class="s3">)</span>
+
+    <span class="s2">if </span><span class="s5">&quot;text&quot; </span><span class="s2">in </span><span class="s1">content_type</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s5">&quot;ISO-8859-1&quot;</span>
+
+    <span class="s2">if </span><span class="s5">&quot;application/json&quot; </span><span class="s2">in </span><span class="s1">content_type</span><span class="s3">:</span>
+        <span class="s4"># Assume UTF-8 based on RFC 4627: https://www.ietf.org/rfc/rfc4627.txt since the charset was unset</span>
+        <span class="s2">return </span><span class="s5">&quot;utf-8&quot;</span>
+
+
+<span class="s2">def </span><span class="s1">stream_decode_response_unicode</span><span class="s3">(</span><span class="s1">iterator</span><span class="s3">, </span><span class="s1">r</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Stream decodes an iterator.&quot;&quot;&quot;</span>
+
+    <span class="s2">if </span><span class="s1">r</span><span class="s3">.</span><span class="s1">encoding </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s2">yield from </span><span class="s1">iterator</span>
+        <span class="s2">return</span>
+
+    <span class="s1">decoder </span><span class="s3">= </span><span class="s1">codecs</span><span class="s3">.</span><span class="s1">getincrementaldecoder</span><span class="s3">(</span><span class="s1">r</span><span class="s3">.</span><span class="s1">encoding</span><span class="s3">)(</span><span class="s1">errors</span><span class="s3">=</span><span class="s5">&quot;replace&quot;</span><span class="s3">)</span>
+    <span class="s2">for </span><span class="s1">chunk </span><span class="s2">in </span><span class="s1">iterator</span><span class="s3">:</span>
+        <span class="s1">rv </span><span class="s3">= </span><span class="s1">decoder</span><span class="s3">.</span><span class="s1">decode</span><span class="s3">(</span><span class="s1">chunk</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">rv</span><span class="s3">:</span>
+            <span class="s2">yield </span><span class="s1">rv</span>
+    <span class="s1">rv </span><span class="s3">= </span><span class="s1">decoder</span><span class="s3">.</span><span class="s1">decode</span><span class="s3">(</span><span class="s7">b&quot;&quot;</span><span class="s3">, </span><span class="s1">final</span><span class="s3">=</span><span class="s2">True</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">rv</span><span class="s3">:</span>
+        <span class="s2">yield </span><span class="s1">rv</span>
+
+
+<span class="s2">def </span><span class="s1">iter_slices</span><span class="s3">(</span><span class="s1">string</span><span class="s3">, </span><span class="s1">slice_length</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Iterate over slices of a string.&quot;&quot;&quot;</span>
+    <span class="s1">pos </span><span class="s3">= </span><span class="s6">0</span>
+    <span class="s2">if </span><span class="s1">slice_length </span><span class="s2">is None or </span><span class="s1">slice_length </span><span class="s3">&lt;= </span><span class="s6">0</span><span class="s3">:</span>
+        <span class="s1">slice_length </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">string</span><span class="s3">)</span>
+    <span class="s2">while </span><span class="s1">pos </span><span class="s3">&lt; </span><span class="s1">len</span><span class="s3">(</span><span class="s1">string</span><span class="s3">):</span>
+        <span class="s2">yield </span><span class="s1">string</span><span class="s3">[</span><span class="s1">pos </span><span class="s3">: </span><span class="s1">pos </span><span class="s3">+ </span><span class="s1">slice_length</span><span class="s3">]</span>
+        <span class="s1">pos </span><span class="s3">+= </span><span class="s1">slice_length</span>
+
+
+<span class="s2">def </span><span class="s1">get_unicode_from_response</span><span class="s3">(</span><span class="s1">r</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Returns the requested content back in unicode. 
+ 
+    :param r: Response object to get unicode content from. 
+ 
+    Tried: 
+ 
+    1. charset from content-type 
+    2. fall back and replace all unicode characters 
+ 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s1">warnings</span><span class="s3">.</span><span class="s1">warn</span><span class="s3">(</span>
+        <span class="s3">(</span>
+            <span class="s5">&quot;In requests 3.0, get_unicode_from_response will be removed. For &quot;</span>
+            <span class="s5">&quot;more information, please see the discussion on issue #2266. (This&quot;</span>
+            <span class="s5">&quot; warning should only appear once.)&quot;</span>
+        <span class="s3">),</span>
+        <span class="s1">DeprecationWarning</span><span class="s3">,</span>
+    <span class="s3">)</span>
+
+    <span class="s1">tried_encodings </span><span class="s3">= []</span>
+
+    <span class="s4"># Try charset from content-type</span>
+    <span class="s1">encoding </span><span class="s3">= </span><span class="s1">get_encoding_from_headers</span><span class="s3">(</span><span class="s1">r</span><span class="s3">.</span><span class="s1">headers</span><span class="s3">)</span>
+
+    <span class="s2">if </span><span class="s1">encoding</span><span class="s3">:</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s1">str</span><span class="s3">(</span><span class="s1">r</span><span class="s3">.</span><span class="s1">content</span><span class="s3">, </span><span class="s1">encoding</span><span class="s3">)</span>
+        <span class="s2">except </span><span class="s1">UnicodeError</span><span class="s3">:</span>
+            <span class="s1">tried_encodings</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">encoding</span><span class="s3">)</span>
+
+    <span class="s4"># Fall back:</span>
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">str</span><span class="s3">(</span><span class="s1">r</span><span class="s3">.</span><span class="s1">content</span><span class="s3">, </span><span class="s1">encoding</span><span class="s3">, </span><span class="s1">errors</span><span class="s3">=</span><span class="s5">&quot;replace&quot;</span><span class="s3">)</span>
+    <span class="s2">except </span><span class="s1">TypeError</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">r</span><span class="s3">.</span><span class="s1">content</span>
+
+
+<span class="s4"># The unreserved URI characters (RFC 3986)</span>
+<span class="s1">UNRESERVED_SET </span><span class="s3">= </span><span class="s1">frozenset</span><span class="s3">(</span>
+    <span class="s5">&quot;ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz&quot; </span><span class="s3">+ </span><span class="s5">&quot;0123456789-._~&quot;</span>
+<span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">unquote_unreserved</span><span class="s3">(</span><span class="s1">uri</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Un-escape any percent-escape sequences in a URI that are unreserved 
+    characters. This leaves all reserved, illegal and non-ASCII bytes encoded. 
+ 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s1">parts </span><span class="s3">= </span><span class="s1">uri</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;%&quot;</span><span class="s3">)</span>
+    <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">range</span><span class="s3">(</span><span class="s6">1</span><span class="s3">, </span><span class="s1">len</span><span class="s3">(</span><span class="s1">parts</span><span class="s3">)):</span>
+        <span class="s1">h </span><span class="s3">= </span><span class="s1">parts</span><span class="s3">[</span><span class="s1">i</span><span class="s3">][</span><span class="s6">0</span><span class="s3">:</span><span class="s6">2</span><span class="s3">]</span>
+        <span class="s2">if </span><span class="s1">len</span><span class="s3">(</span><span class="s1">h</span><span class="s3">) == </span><span class="s6">2 </span><span class="s2">and </span><span class="s1">h</span><span class="s3">.</span><span class="s1">isalnum</span><span class="s3">():</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">c </span><span class="s3">= </span><span class="s1">chr</span><span class="s3">(</span><span class="s1">int</span><span class="s3">(</span><span class="s1">h</span><span class="s3">, </span><span class="s6">16</span><span class="s3">))</span>
+            <span class="s2">except </span><span class="s1">ValueError</span><span class="s3">:</span>
+                <span class="s2">raise </span><span class="s1">InvalidURL</span><span class="s3">(</span><span class="s5">f&quot;Invalid percent-escape sequence: '</span><span class="s2">{</span><span class="s1">h</span><span class="s2">}</span><span class="s5">'&quot;</span><span class="s3">)</span>
+
+            <span class="s2">if </span><span class="s1">c </span><span class="s2">in </span><span class="s1">UNRESERVED_SET</span><span class="s3">:</span>
+                <span class="s1">parts</span><span class="s3">[</span><span class="s1">i</span><span class="s3">] = </span><span class="s1">c </span><span class="s3">+ </span><span class="s1">parts</span><span class="s3">[</span><span class="s1">i</span><span class="s3">][</span><span class="s6">2</span><span class="s3">:]</span>
+            <span class="s2">else</span><span class="s3">:</span>
+                <span class="s1">parts</span><span class="s3">[</span><span class="s1">i</span><span class="s3">] = </span><span class="s5">f&quot;%</span><span class="s2">{</span><span class="s1">parts</span><span class="s3">[</span><span class="s1">i</span><span class="s3">]</span><span class="s2">}</span><span class="s5">&quot;</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">parts</span><span class="s3">[</span><span class="s1">i</span><span class="s3">] = </span><span class="s5">f&quot;%</span><span class="s2">{</span><span class="s1">parts</span><span class="s3">[</span><span class="s1">i</span><span class="s3">]</span><span class="s2">}</span><span class="s5">&quot;</span>
+    <span class="s2">return </span><span class="s5">&quot;&quot;</span><span class="s3">.</span><span class="s1">join</span><span class="s3">(</span><span class="s1">parts</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">requote_uri</span><span class="s3">(</span><span class="s1">uri</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Re-quote the given URI. 
+ 
+    This function passes the given URI through an unquote/quote cycle to 
+    ensure that it is fully and consistently quoted. 
+ 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s1">safe_with_percent </span><span class="s3">= </span><span class="s5">&quot;!#$%&amp;'()*+,/:;=?@[]~&quot;</span>
+    <span class="s1">safe_without_percent </span><span class="s3">= </span><span class="s5">&quot;!#$&amp;'()*+,/:;=?@[]~&quot;</span>
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s4"># Unquote only the unreserved characters</span>
+        <span class="s4"># Then quote only illegal characters (do not quote reserved,</span>
+        <span class="s4"># unreserved, or '%')</span>
+        <span class="s2">return </span><span class="s1">quote</span><span class="s3">(</span><span class="s1">unquote_unreserved</span><span class="s3">(</span><span class="s1">uri</span><span class="s3">), </span><span class="s1">safe</span><span class="s3">=</span><span class="s1">safe_with_percent</span><span class="s3">)</span>
+    <span class="s2">except </span><span class="s1">InvalidURL</span><span class="s3">:</span>
+        <span class="s4"># We couldn't unquote the given URI, so let's try quoting it, but</span>
+        <span class="s4"># there may be unquoted '%'s in the URI. We need to make sure they're</span>
+        <span class="s4"># properly quoted so they do not cause issues elsewhere.</span>
+        <span class="s2">return </span><span class="s1">quote</span><span class="s3">(</span><span class="s1">uri</span><span class="s3">, </span><span class="s1">safe</span><span class="s3">=</span><span class="s1">safe_without_percent</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">address_in_network</span><span class="s3">(</span><span class="s1">ip</span><span class="s3">, </span><span class="s1">net</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;This function allows you to check if an IP belongs to a network subnet 
+ 
+    Example: returns True if ip = 192.168.1.1 and net = 192.168.1.0/24 
+             returns False if ip = 192.168.1.1 and net = 192.168.100.0/24 
+ 
+    :rtype: bool 
+    &quot;&quot;&quot;</span>
+    <span class="s1">ipaddr </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s5">&quot;=L&quot;</span><span class="s3">, </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">inet_aton</span><span class="s3">(</span><span class="s1">ip</span><span class="s3">))[</span><span class="s6">0</span><span class="s3">]</span>
+    <span class="s1">netaddr</span><span class="s3">, </span><span class="s1">bits </span><span class="s3">= </span><span class="s1">net</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;/&quot;</span><span class="s3">)</span>
+    <span class="s1">netmask </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s5">&quot;=L&quot;</span><span class="s3">, </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">inet_aton</span><span class="s3">(</span><span class="s1">dotted_netmask</span><span class="s3">(</span><span class="s1">int</span><span class="s3">(</span><span class="s1">bits</span><span class="s3">))))[</span><span class="s6">0</span><span class="s3">]</span>
+    <span class="s1">network </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">unpack</span><span class="s3">(</span><span class="s5">&quot;=L&quot;</span><span class="s3">, </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">inet_aton</span><span class="s3">(</span><span class="s1">netaddr</span><span class="s3">))[</span><span class="s6">0</span><span class="s3">] &amp; </span><span class="s1">netmask</span>
+    <span class="s2">return </span><span class="s3">(</span><span class="s1">ipaddr </span><span class="s3">&amp; </span><span class="s1">netmask</span><span class="s3">) == (</span><span class="s1">network </span><span class="s3">&amp; </span><span class="s1">netmask</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">dotted_netmask</span><span class="s3">(</span><span class="s1">mask</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Converts mask from /xx format to xxx.xxx.xxx.xxx 
+ 
+    Example: if mask is 24 function returns 255.255.255.0 
+ 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s1">bits </span><span class="s3">= </span><span class="s6">0xFFFFFFFF </span><span class="s3">^ (</span><span class="s6">1 </span><span class="s3">&lt;&lt; </span><span class="s6">32 </span><span class="s3">- </span><span class="s1">mask</span><span class="s3">) - </span><span class="s6">1</span>
+    <span class="s2">return </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">inet_ntoa</span><span class="s3">(</span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span><span class="s5">&quot;&gt;I&quot;</span><span class="s3">, </span><span class="s1">bits</span><span class="s3">))</span>
+
+
+<span class="s2">def </span><span class="s1">is_ipv4_address</span><span class="s3">(</span><span class="s1">string_ip</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    :rtype: bool 
+    &quot;&quot;&quot;</span>
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s1">socket</span><span class="s3">.</span><span class="s1">inet_aton</span><span class="s3">(</span><span class="s1">string_ip</span><span class="s3">)</span>
+    <span class="s2">except </span><span class="s1">OSError</span><span class="s3">:</span>
+        <span class="s2">return False</span>
+    <span class="s2">return True</span>
+
+
+<span class="s2">def </span><span class="s1">is_valid_cidr</span><span class="s3">(</span><span class="s1">string_network</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Very simple check of the cidr format in no_proxy variable. 
+ 
+    :rtype: bool 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">string_network</span><span class="s3">.</span><span class="s1">count</span><span class="s3">(</span><span class="s5">&quot;/&quot;</span><span class="s3">) == </span><span class="s6">1</span><span class="s3">:</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">mask </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">string_network</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;/&quot;</span><span class="s3">)[</span><span class="s6">1</span><span class="s3">])</span>
+        <span class="s2">except </span><span class="s1">ValueError</span><span class="s3">:</span>
+            <span class="s2">return False</span>
+
+        <span class="s2">if </span><span class="s1">mask </span><span class="s3">&lt; </span><span class="s6">1 </span><span class="s2">or </span><span class="s1">mask </span><span class="s3">&gt; </span><span class="s6">32</span><span class="s3">:</span>
+            <span class="s2">return False</span>
+
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">socket</span><span class="s3">.</span><span class="s1">inet_aton</span><span class="s3">(</span><span class="s1">string_network</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;/&quot;</span><span class="s3">)[</span><span class="s6">0</span><span class="s3">])</span>
+        <span class="s2">except </span><span class="s1">OSError</span><span class="s3">:</span>
+            <span class="s2">return False</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s2">return False</span>
+    <span class="s2">return True</span>
+
+
+<span class="s3">@</span><span class="s1">contextlib</span><span class="s3">.</span><span class="s1">contextmanager</span>
+<span class="s2">def </span><span class="s1">set_environ</span><span class="s3">(</span><span class="s1">env_name</span><span class="s3">, </span><span class="s1">value</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Set the environment variable 'env_name' to 'value' 
+ 
+    Save previous value, yield, and then restore the previous value stored in 
+    the environment variable 'env_name'. 
+ 
+    If 'value' is None, do nothing&quot;&quot;&quot;</span>
+    <span class="s1">value_changed </span><span class="s3">= </span><span class="s1">value </span><span class="s2">is not None</span>
+    <span class="s2">if </span><span class="s1">value_changed</span><span class="s3">:</span>
+        <span class="s1">old_value </span><span class="s3">= </span><span class="s1">os</span><span class="s3">.</span><span class="s1">environ</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">env_name</span><span class="s3">)</span>
+        <span class="s1">os</span><span class="s3">.</span><span class="s1">environ</span><span class="s3">[</span><span class="s1">env_name</span><span class="s3">] = </span><span class="s1">value</span>
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s2">yield</span>
+    <span class="s2">finally</span><span class="s3">:</span>
+        <span class="s2">if </span><span class="s1">value_changed</span><span class="s3">:</span>
+            <span class="s2">if </span><span class="s1">old_value </span><span class="s2">is None</span><span class="s3">:</span>
+                <span class="s2">del </span><span class="s1">os</span><span class="s3">.</span><span class="s1">environ</span><span class="s3">[</span><span class="s1">env_name</span><span class="s3">]</span>
+            <span class="s2">else</span><span class="s3">:</span>
+                <span class="s1">os</span><span class="s3">.</span><span class="s1">environ</span><span class="s3">[</span><span class="s1">env_name</span><span class="s3">] = </span><span class="s1">old_value</span>
+
+
+<span class="s2">def </span><span class="s1">should_bypass_proxies</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">no_proxy</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Returns whether we should bypass proxies or not. 
+ 
+    :rtype: bool 
+    &quot;&quot;&quot;</span>
+
+    <span class="s4"># Prioritize lowercase environment variables over uppercase</span>
+    <span class="s4"># to keep a consistent behaviour with other http projects (curl, wget).</span>
+    <span class="s2">def </span><span class="s1">get_proxy</span><span class="s3">(</span><span class="s1">key</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">os</span><span class="s3">.</span><span class="s1">environ</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">key</span><span class="s3">) </span><span class="s2">or </span><span class="s1">os</span><span class="s3">.</span><span class="s1">environ</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">key</span><span class="s3">.</span><span class="s1">upper</span><span class="s3">())</span>
+
+    <span class="s4"># First check whether no_proxy is defined. If it is, check that the URL</span>
+    <span class="s4"># we're getting isn't in the no_proxy list.</span>
+    <span class="s1">no_proxy_arg </span><span class="s3">= </span><span class="s1">no_proxy</span>
+    <span class="s2">if </span><span class="s1">no_proxy </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s1">no_proxy </span><span class="s3">= </span><span class="s1">get_proxy</span><span class="s3">(</span><span class="s5">&quot;no_proxy&quot;</span><span class="s3">)</span>
+    <span class="s1">parsed </span><span class="s3">= </span><span class="s1">urlparse</span><span class="s3">(</span><span class="s1">url</span><span class="s3">)</span>
+
+    <span class="s2">if </span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">hostname </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s4"># URLs don't always have hostnames, e.g. file:/// urls.</span>
+        <span class="s2">return True</span>
+
+    <span class="s2">if </span><span class="s1">no_proxy</span><span class="s3">:</span>
+        <span class="s4"># We need to check whether we match here. We need to see if we match</span>
+        <span class="s4"># the end of the hostname, both with and without the port.</span>
+        <span class="s1">no_proxy </span><span class="s3">= (</span><span class="s1">host </span><span class="s2">for </span><span class="s1">host </span><span class="s2">in </span><span class="s1">no_proxy</span><span class="s3">.</span><span class="s1">replace</span><span class="s3">(</span><span class="s5">&quot; &quot;</span><span class="s3">, </span><span class="s5">&quot;&quot;</span><span class="s3">).</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;,&quot;</span><span class="s3">) </span><span class="s2">if </span><span class="s1">host</span><span class="s3">)</span>
+
+        <span class="s2">if </span><span class="s1">is_ipv4_address</span><span class="s3">(</span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">):</span>
+            <span class="s2">for </span><span class="s1">proxy_ip </span><span class="s2">in </span><span class="s1">no_proxy</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s1">is_valid_cidr</span><span class="s3">(</span><span class="s1">proxy_ip</span><span class="s3">):</span>
+                    <span class="s2">if </span><span class="s1">address_in_network</span><span class="s3">(</span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">, </span><span class="s1">proxy_ip</span><span class="s3">):</span>
+                        <span class="s2">return True</span>
+                <span class="s2">elif </span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">hostname </span><span class="s3">== </span><span class="s1">proxy_ip</span><span class="s3">:</span>
+                    <span class="s4"># If no_proxy ip was defined in plain IP notation instead of cidr notation &amp;</span>
+                    <span class="s4"># matches the IP of the index</span>
+                    <span class="s2">return True</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">host_with_port </span><span class="s3">= </span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">hostname</span>
+            <span class="s2">if </span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">port</span><span class="s3">:</span>
+                <span class="s1">host_with_port </span><span class="s3">+= </span><span class="s5">f&quot;:</span><span class="s2">{</span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">port</span><span class="s2">}</span><span class="s5">&quot;</span>
+
+            <span class="s2">for </span><span class="s1">host </span><span class="s2">in </span><span class="s1">no_proxy</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">.</span><span class="s1">endswith</span><span class="s3">(</span><span class="s1">host</span><span class="s3">) </span><span class="s2">or </span><span class="s1">host_with_port</span><span class="s3">.</span><span class="s1">endswith</span><span class="s3">(</span><span class="s1">host</span><span class="s3">):</span>
+                    <span class="s4"># The URL does match something in no_proxy, so we don't want</span>
+                    <span class="s4"># to apply the proxies on this URL.</span>
+                    <span class="s2">return True</span>
+
+    <span class="s2">with </span><span class="s1">set_environ</span><span class="s3">(</span><span class="s5">&quot;no_proxy&quot;</span><span class="s3">, </span><span class="s1">no_proxy_arg</span><span class="s3">):</span>
+        <span class="s4"># parsed.hostname can be `None` in cases such as a file URI.</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">bypass </span><span class="s3">= </span><span class="s1">proxy_bypass</span><span class="s3">(</span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">)</span>
+        <span class="s2">except </span><span class="s3">(</span><span class="s1">TypeError</span><span class="s3">, </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">gaierror</span><span class="s3">):</span>
+            <span class="s1">bypass </span><span class="s3">= </span><span class="s2">False</span>
+
+    <span class="s2">if </span><span class="s1">bypass</span><span class="s3">:</span>
+        <span class="s2">return True</span>
+
+    <span class="s2">return False</span>
+
+
+<span class="s2">def </span><span class="s1">get_environ_proxies</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">no_proxy</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Return a dict of environment proxies. 
+ 
+    :rtype: dict 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">should_bypass_proxies</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">no_proxy</span><span class="s3">=</span><span class="s1">no_proxy</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s3">{}</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">getproxies</span><span class="s3">()</span>
+
+
+<span class="s2">def </span><span class="s1">select_proxy</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">proxies</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Select a proxy for the url, if applicable. 
+ 
+    :param url: The url being for the request 
+    :param proxies: A dictionary of schemes or schemes and hosts to proxy URLs 
+    &quot;&quot;&quot;</span>
+    <span class="s1">proxies </span><span class="s3">= </span><span class="s1">proxies </span><span class="s2">or </span><span class="s3">{}</span>
+    <span class="s1">urlparts </span><span class="s3">= </span><span class="s1">urlparse</span><span class="s3">(</span><span class="s1">url</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">urlparts</span><span class="s3">.</span><span class="s1">hostname </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">proxies</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">urlparts</span><span class="s3">.</span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">proxies</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s5">&quot;all&quot;</span><span class="s3">))</span>
+
+    <span class="s1">proxy_keys </span><span class="s3">= [</span>
+        <span class="s1">urlparts</span><span class="s3">.</span><span class="s1">scheme </span><span class="s3">+ </span><span class="s5">&quot;://&quot; </span><span class="s3">+ </span><span class="s1">urlparts</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">,</span>
+        <span class="s1">urlparts</span><span class="s3">.</span><span class="s1">scheme</span><span class="s3">,</span>
+        <span class="s5">&quot;all://&quot; </span><span class="s3">+ </span><span class="s1">urlparts</span><span class="s3">.</span><span class="s1">hostname</span><span class="s3">,</span>
+        <span class="s5">&quot;all&quot;</span><span class="s3">,</span>
+    <span class="s3">]</span>
+    <span class="s1">proxy </span><span class="s3">= </span><span class="s2">None</span>
+    <span class="s2">for </span><span class="s1">proxy_key </span><span class="s2">in </span><span class="s1">proxy_keys</span><span class="s3">:</span>
+        <span class="s2">if </span><span class="s1">proxy_key </span><span class="s2">in </span><span class="s1">proxies</span><span class="s3">:</span>
+            <span class="s1">proxy </span><span class="s3">= </span><span class="s1">proxies</span><span class="s3">[</span><span class="s1">proxy_key</span><span class="s3">]</span>
+            <span class="s2">break</span>
+
+    <span class="s2">return </span><span class="s1">proxy</span>
+
+
+<span class="s2">def </span><span class="s1">resolve_proxies</span><span class="s3">(</span><span class="s1">request</span><span class="s3">, </span><span class="s1">proxies</span><span class="s3">, </span><span class="s1">trust_env</span><span class="s3">=</span><span class="s2">True</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;This method takes proxy information from a request and configuration 
+    input to resolve a mapping of target proxies. This will consider settings 
+    such as NO_PROXY to strip proxy configurations. 
+ 
+    :param request: Request or PreparedRequest 
+    :param proxies: A dictionary of schemes or schemes and hosts to proxy URLs 
+    :param trust_env: Boolean declaring whether to trust environment configs 
+ 
+    :rtype: dict 
+    &quot;&quot;&quot;</span>
+    <span class="s1">proxies </span><span class="s3">= </span><span class="s1">proxies </span><span class="s2">if </span><span class="s1">proxies </span><span class="s2">is not None else </span><span class="s3">{}</span>
+    <span class="s1">url </span><span class="s3">= </span><span class="s1">request</span><span class="s3">.</span><span class="s1">url</span>
+    <span class="s1">scheme </span><span class="s3">= </span><span class="s1">urlparse</span><span class="s3">(</span><span class="s1">url</span><span class="s3">).</span><span class="s1">scheme</span>
+    <span class="s1">no_proxy </span><span class="s3">= </span><span class="s1">proxies</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s5">&quot;no_proxy&quot;</span><span class="s3">)</span>
+    <span class="s1">new_proxies </span><span class="s3">= </span><span class="s1">proxies</span><span class="s3">.</span><span class="s1">copy</span><span class="s3">()</span>
+
+    <span class="s2">if </span><span class="s1">trust_env </span><span class="s2">and not </span><span class="s1">should_bypass_proxies</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">no_proxy</span><span class="s3">=</span><span class="s1">no_proxy</span><span class="s3">):</span>
+        <span class="s1">environ_proxies </span><span class="s3">= </span><span class="s1">get_environ_proxies</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">no_proxy</span><span class="s3">=</span><span class="s1">no_proxy</span><span class="s3">)</span>
+
+        <span class="s1">proxy </span><span class="s3">= </span><span class="s1">environ_proxies</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">environ_proxies</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s5">&quot;all&quot;</span><span class="s3">))</span>
+
+        <span class="s2">if </span><span class="s1">proxy</span><span class="s3">:</span>
+            <span class="s1">new_proxies</span><span class="s3">.</span><span class="s1">setdefault</span><span class="s3">(</span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">proxy</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">new_proxies</span>
+
+
+<span class="s2">def </span><span class="s1">default_user_agent</span><span class="s3">(</span><span class="s1">name</span><span class="s3">=</span><span class="s5">&quot;python-requests&quot;</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Return a string representing the default user agent. 
+ 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s5">f&quot;</span><span class="s2">{</span><span class="s1">name</span><span class="s2">}</span><span class="s5">/</span><span class="s2">{</span><span class="s1">__version__</span><span class="s2">}</span><span class="s5">&quot;</span>
+
+
+<span class="s2">def </span><span class="s1">default_headers</span><span class="s3">():</span>
+    <span class="s0">&quot;&quot;&quot; 
+    :rtype: requests.structures.CaseInsensitiveDict 
+    &quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s1">CaseInsensitiveDict</span><span class="s3">(</span>
+        <span class="s3">{</span>
+            <span class="s5">&quot;User-Agent&quot;</span><span class="s3">: </span><span class="s1">default_user_agent</span><span class="s3">(),</span>
+            <span class="s5">&quot;Accept-Encoding&quot;</span><span class="s3">: </span><span class="s1">DEFAULT_ACCEPT_ENCODING</span><span class="s3">,</span>
+            <span class="s5">&quot;Accept&quot;</span><span class="s3">: </span><span class="s5">&quot;*/*&quot;</span><span class="s3">,</span>
+            <span class="s5">&quot;Connection&quot;</span><span class="s3">: </span><span class="s5">&quot;keep-alive&quot;</span><span class="s3">,</span>
+        <span class="s3">}</span>
+    <span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">parse_header_links</span><span class="s3">(</span><span class="s1">value</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Return a list of parsed link headers proxies. 
+ 
+    i.e. Link: &lt;http:/.../front.jpeg&gt;; rel=front; type=&quot;image/jpeg&quot;,&lt;http://.../back.jpeg&gt;; rel=back;type=&quot;image/jpeg&quot; 
+ 
+    :rtype: list 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">links </span><span class="s3">= []</span>
+
+    <span class="s1">replace_chars </span><span class="s3">= </span><span class="s5">&quot; '</span><span class="s2">\&quot;</span><span class="s5">&quot;</span>
+
+    <span class="s1">value </span><span class="s3">= </span><span class="s1">value</span><span class="s3">.</span><span class="s1">strip</span><span class="s3">(</span><span class="s1">replace_chars</span><span class="s3">)</span>
+    <span class="s2">if not </span><span class="s1">value</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">links</span>
+
+    <span class="s2">for </span><span class="s1">val </span><span class="s2">in </span><span class="s1">re</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;, *&lt;&quot;</span><span class="s3">, </span><span class="s1">value</span><span class="s3">):</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">url</span><span class="s3">, </span><span class="s1">params </span><span class="s3">= </span><span class="s1">val</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;;&quot;</span><span class="s3">, </span><span class="s6">1</span><span class="s3">)</span>
+        <span class="s2">except </span><span class="s1">ValueError</span><span class="s3">:</span>
+            <span class="s1">url</span><span class="s3">, </span><span class="s1">params </span><span class="s3">= </span><span class="s1">val</span><span class="s3">, </span><span class="s5">&quot;&quot;</span>
+
+        <span class="s1">link </span><span class="s3">= {</span><span class="s5">&quot;url&quot;</span><span class="s3">: </span><span class="s1">url</span><span class="s3">.</span><span class="s1">strip</span><span class="s3">(</span><span class="s5">&quot;&lt;&gt; '</span><span class="s2">\&quot;</span><span class="s5">&quot;</span><span class="s3">)}</span>
+
+        <span class="s2">for </span><span class="s1">param </span><span class="s2">in </span><span class="s1">params</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;;&quot;</span><span class="s3">):</span>
+            <span class="s2">try</span><span class="s3">:</span>
+                <span class="s1">key</span><span class="s3">, </span><span class="s1">value </span><span class="s3">= </span><span class="s1">param</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;=&quot;</span><span class="s3">)</span>
+            <span class="s2">except </span><span class="s1">ValueError</span><span class="s3">:</span>
+                <span class="s2">break</span>
+
+            <span class="s1">link</span><span class="s3">[</span><span class="s1">key</span><span class="s3">.</span><span class="s1">strip</span><span class="s3">(</span><span class="s1">replace_chars</span><span class="s3">)] = </span><span class="s1">value</span><span class="s3">.</span><span class="s1">strip</span><span class="s3">(</span><span class="s1">replace_chars</span><span class="s3">)</span>
+
+        <span class="s1">links</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">link</span><span class="s3">)</span>
+
+    <span class="s2">return </span><span class="s1">links</span>
+
+
+<span class="s4"># Null bytes; no need to recreate these on each call to guess_json_utf</span>
+<span class="s1">_null </span><span class="s3">= </span><span class="s5">&quot;</span><span class="s2">\x00</span><span class="s5">&quot;</span><span class="s3">.</span><span class="s1">encode</span><span class="s3">(</span><span class="s5">&quot;ascii&quot;</span><span class="s3">)  </span><span class="s4"># encoding to ASCII for Python 3</span>
+<span class="s1">_null2 </span><span class="s3">= </span><span class="s1">_null </span><span class="s3">* </span><span class="s6">2</span>
+<span class="s1">_null3 </span><span class="s3">= </span><span class="s1">_null </span><span class="s3">* </span><span class="s6">3</span>
+
+
+<span class="s2">def </span><span class="s1">guess_json_utf</span><span class="s3">(</span><span class="s1">data</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s4"># JSON always starts with two ASCII characters, so detection is as</span>
+    <span class="s4"># easy as counting the nulls and from their location and count</span>
+    <span class="s4"># determine the encoding. Also detect a BOM, if present.</span>
+    <span class="s1">sample </span><span class="s3">= </span><span class="s1">data</span><span class="s3">[:</span><span class="s6">4</span><span class="s3">]</span>
+    <span class="s2">if </span><span class="s1">sample </span><span class="s2">in </span><span class="s3">(</span><span class="s1">codecs</span><span class="s3">.</span><span class="s1">BOM_UTF32_LE</span><span class="s3">, </span><span class="s1">codecs</span><span class="s3">.</span><span class="s1">BOM_UTF32_BE</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s5">&quot;utf-32&quot;  </span><span class="s4"># BOM included</span>
+    <span class="s2">if </span><span class="s1">sample</span><span class="s3">[:</span><span class="s6">3</span><span class="s3">] == </span><span class="s1">codecs</span><span class="s3">.</span><span class="s1">BOM_UTF8</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s5">&quot;utf-8-sig&quot;  </span><span class="s4"># BOM included, MS style (discouraged)</span>
+    <span class="s2">if </span><span class="s1">sample</span><span class="s3">[:</span><span class="s6">2</span><span class="s3">] </span><span class="s2">in </span><span class="s3">(</span><span class="s1">codecs</span><span class="s3">.</span><span class="s1">BOM_UTF16_LE</span><span class="s3">, </span><span class="s1">codecs</span><span class="s3">.</span><span class="s1">BOM_UTF16_BE</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s5">&quot;utf-16&quot;  </span><span class="s4"># BOM included</span>
+    <span class="s1">nullcount </span><span class="s3">= </span><span class="s1">sample</span><span class="s3">.</span><span class="s1">count</span><span class="s3">(</span><span class="s1">_null</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">nullcount </span><span class="s3">== </span><span class="s6">0</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s5">&quot;utf-8&quot;</span>
+    <span class="s2">if </span><span class="s1">nullcount </span><span class="s3">== </span><span class="s6">2</span><span class="s3">:</span>
+        <span class="s2">if </span><span class="s1">sample</span><span class="s3">[::</span><span class="s6">2</span><span class="s3">] == </span><span class="s1">_null2</span><span class="s3">:  </span><span class="s4"># 1st and 3rd are null</span>
+            <span class="s2">return </span><span class="s5">&quot;utf-16-be&quot;</span>
+        <span class="s2">if </span><span class="s1">sample</span><span class="s3">[</span><span class="s6">1</span><span class="s3">::</span><span class="s6">2</span><span class="s3">] == </span><span class="s1">_null2</span><span class="s3">:  </span><span class="s4"># 2nd and 4th are null</span>
+            <span class="s2">return </span><span class="s5">&quot;utf-16-le&quot;</span>
+        <span class="s4"># Did not detect 2 valid UTF-16 ascii-range characters</span>
+    <span class="s2">if </span><span class="s1">nullcount </span><span class="s3">== </span><span class="s6">3</span><span class="s3">:</span>
+        <span class="s2">if </span><span class="s1">sample</span><span class="s3">[:</span><span class="s6">3</span><span class="s3">] == </span><span class="s1">_null3</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s5">&quot;utf-32-be&quot;</span>
+        <span class="s2">if </span><span class="s1">sample</span><span class="s3">[</span><span class="s6">1</span><span class="s3">:] == </span><span class="s1">_null3</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s5">&quot;utf-32-le&quot;</span>
+        <span class="s4"># Did not detect a valid UTF-32 ascii-range character</span>
+    <span class="s2">return None</span>
+
+
+<span class="s2">def </span><span class="s1">prepend_scheme_if_needed</span><span class="s3">(</span><span class="s1">url</span><span class="s3">, </span><span class="s1">new_scheme</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Given a URL that may or may not have a scheme, prepend the given scheme. 
+    Does not replace a present scheme with the one provided as an argument. 
+ 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s1">parsed </span><span class="s3">= </span><span class="s1">parse_url</span><span class="s3">(</span><span class="s1">url</span><span class="s3">)</span>
+    <span class="s1">scheme</span><span class="s3">, </span><span class="s1">auth</span><span class="s3">, </span><span class="s1">host</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">path</span><span class="s3">, </span><span class="s1">query</span><span class="s3">, </span><span class="s1">fragment </span><span class="s3">= </span><span class="s1">parsed</span>
+
+    <span class="s4"># A defect in urlparse determines that there isn't a netloc present in some</span>
+    <span class="s4"># urls. We previously assumed parsing was overly cautious, and swapped the</span>
+    <span class="s4"># netloc and path. Due to a lack of tests on the original defect, this is</span>
+    <span class="s4"># maintained with parse_url for backwards compatibility.</span>
+    <span class="s1">netloc </span><span class="s3">= </span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">netloc</span>
+    <span class="s2">if not </span><span class="s1">netloc</span><span class="s3">:</span>
+        <span class="s1">netloc</span><span class="s3">, </span><span class="s1">path </span><span class="s3">= </span><span class="s1">path</span><span class="s3">, </span><span class="s1">netloc</span>
+
+    <span class="s2">if </span><span class="s1">auth</span><span class="s3">:</span>
+        <span class="s4"># parse_url doesn't provide the netloc with auth</span>
+        <span class="s4"># so we'll add it ourselves.</span>
+        <span class="s1">netloc </span><span class="s3">= </span><span class="s5">&quot;@&quot;</span><span class="s3">.</span><span class="s1">join</span><span class="s3">([</span><span class="s1">auth</span><span class="s3">, </span><span class="s1">netloc</span><span class="s3">])</span>
+    <span class="s2">if </span><span class="s1">scheme </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s1">scheme </span><span class="s3">= </span><span class="s1">new_scheme</span>
+    <span class="s2">if </span><span class="s1">path </span><span class="s2">is None</span><span class="s3">:</span>
+        <span class="s1">path </span><span class="s3">= </span><span class="s5">&quot;&quot;</span>
+
+    <span class="s2">return </span><span class="s1">urlunparse</span><span class="s3">((</span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">netloc</span><span class="s3">, </span><span class="s1">path</span><span class="s3">, </span><span class="s5">&quot;&quot;</span><span class="s3">, </span><span class="s1">query</span><span class="s3">, </span><span class="s1">fragment</span><span class="s3">))</span>
+
+
+<span class="s2">def </span><span class="s1">get_auth_from_url</span><span class="s3">(</span><span class="s1">url</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Given a url with authentication components, extract them into a tuple of 
+    username,password. 
+ 
+    :rtype: (str,str) 
+    &quot;&quot;&quot;</span>
+    <span class="s1">parsed </span><span class="s3">= </span><span class="s1">urlparse</span><span class="s3">(</span><span class="s1">url</span><span class="s3">)</span>
+
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s1">auth </span><span class="s3">= (</span><span class="s1">unquote</span><span class="s3">(</span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">username</span><span class="s3">), </span><span class="s1">unquote</span><span class="s3">(</span><span class="s1">parsed</span><span class="s3">.</span><span class="s1">password</span><span class="s3">))</span>
+    <span class="s2">except </span><span class="s3">(</span><span class="s1">AttributeError</span><span class="s3">, </span><span class="s1">TypeError</span><span class="s3">):</span>
+        <span class="s1">auth </span><span class="s3">= (</span><span class="s5">&quot;&quot;</span><span class="s3">, </span><span class="s5">&quot;&quot;</span><span class="s3">)</span>
+
+    <span class="s2">return </span><span class="s1">auth</span>
+
+
+<span class="s2">def </span><span class="s1">check_header_validity</span><span class="s3">(</span><span class="s1">header</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Verifies that header parts don't contain leading whitespace 
+    reserved characters, or return characters. 
+ 
+    :param header: tuple, in the format (name, value). 
+    &quot;&quot;&quot;</span>
+    <span class="s1">name</span><span class="s3">, </span><span class="s1">value </span><span class="s3">= </span><span class="s1">header</span>
+    <span class="s1">_validate_header_part</span><span class="s3">(</span><span class="s1">header</span><span class="s3">, </span><span class="s1">name</span><span class="s3">, </span><span class="s6">0</span><span class="s3">)</span>
+    <span class="s1">_validate_header_part</span><span class="s3">(</span><span class="s1">header</span><span class="s3">, </span><span class="s1">value</span><span class="s3">, </span><span class="s6">1</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">_validate_header_part</span><span class="s3">(</span><span class="s1">header</span><span class="s3">, </span><span class="s1">header_part</span><span class="s3">, </span><span class="s1">header_validator_index</span><span class="s3">):</span>
+    <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">header_part</span><span class="s3">, </span><span class="s1">str</span><span class="s3">):</span>
+        <span class="s1">validator </span><span class="s3">= </span><span class="s1">_HEADER_VALIDATORS_STR</span><span class="s3">[</span><span class="s1">header_validator_index</span><span class="s3">]</span>
+    <span class="s2">elif </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">header_part</span><span class="s3">, </span><span class="s1">bytes</span><span class="s3">):</span>
+        <span class="s1">validator </span><span class="s3">= </span><span class="s1">_HEADER_VALIDATORS_BYTE</span><span class="s3">[</span><span class="s1">header_validator_index</span><span class="s3">]</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">InvalidHeader</span><span class="s3">(</span>
+            <span class="s5">f&quot;Header part (</span><span class="s2">{</span><span class="s1">header_part</span><span class="s2">!r}</span><span class="s5">) from </span><span class="s2">{</span><span class="s1">header</span><span class="s2">} </span><span class="s5">&quot;</span>
+            <span class="s5">f&quot;must be of type str or bytes, not </span><span class="s2">{</span><span class="s1">type</span><span class="s3">(</span><span class="s1">header_part</span><span class="s3">)</span><span class="s2">}</span><span class="s5">&quot;</span>
+        <span class="s3">)</span>
+
+    <span class="s2">if not </span><span class="s1">validator</span><span class="s3">.</span><span class="s1">match</span><span class="s3">(</span><span class="s1">header_part</span><span class="s3">):</span>
+        <span class="s1">header_kind </span><span class="s3">= </span><span class="s5">&quot;name&quot; </span><span class="s2">if </span><span class="s1">header_validator_index </span><span class="s3">== </span><span class="s6">0 </span><span class="s2">else </span><span class="s5">&quot;value&quot;</span>
+        <span class="s2">raise </span><span class="s1">InvalidHeader</span><span class="s3">(</span>
+            <span class="s5">f&quot;Invalid leading whitespace, reserved character(s), or return &quot;</span>
+            <span class="s5">f&quot;character(s) in header </span><span class="s2">{</span><span class="s1">header_kind</span><span class="s2">}</span><span class="s5">: </span><span class="s2">{</span><span class="s1">header_part</span><span class="s2">!r}</span><span class="s5">&quot;</span>
+        <span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">urldefragauth</span><span class="s3">(</span><span class="s1">url</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Given a url remove the fragment and the authentication part. 
+ 
+    :rtype: str 
+    &quot;&quot;&quot;</span>
+    <span class="s1">scheme</span><span class="s3">, </span><span class="s1">netloc</span><span class="s3">, </span><span class="s1">path</span><span class="s3">, </span><span class="s1">params</span><span class="s3">, </span><span class="s1">query</span><span class="s3">, </span><span class="s1">fragment </span><span class="s3">= </span><span class="s1">urlparse</span><span class="s3">(</span><span class="s1">url</span><span class="s3">)</span>
+
+    <span class="s4"># see func:`prepend_scheme_if_needed`</span>
+    <span class="s2">if not </span><span class="s1">netloc</span><span class="s3">:</span>
+        <span class="s1">netloc</span><span class="s3">, </span><span class="s1">path </span><span class="s3">= </span><span class="s1">path</span><span class="s3">, </span><span class="s1">netloc</span>
+
+    <span class="s1">netloc </span><span class="s3">= </span><span class="s1">netloc</span><span class="s3">.</span><span class="s1">rsplit</span><span class="s3">(</span><span class="s5">&quot;@&quot;</span><span class="s3">, </span><span class="s6">1</span><span class="s3">)[-</span><span class="s6">1</span><span class="s3">]</span>
+
+    <span class="s2">return </span><span class="s1">urlunparse</span><span class="s3">((</span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">netloc</span><span class="s3">, </span><span class="s1">path</span><span class="s3">, </span><span class="s1">params</span><span class="s3">, </span><span class="s1">query</span><span class="s3">, </span><span class="s5">&quot;&quot;</span><span class="s3">))</span>
+
+
+<span class="s2">def </span><span class="s1">rewind_body</span><span class="s3">(</span><span class="s1">prepared_request</span><span class="s3">):</span>
+    <span class="s0">&quot;&quot;&quot;Move file pointer back to its recorded starting position 
+    so it can be read again on redirect. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">body_seek </span><span class="s3">= </span><span class="s1">getattr</span><span class="s3">(</span><span class="s1">prepared_request</span><span class="s3">.</span><span class="s1">body</span><span class="s3">, </span><span class="s5">&quot;seek&quot;</span><span class="s3">, </span><span class="s2">None</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">body_seek </span><span class="s2">is not None and </span><span class="s1">isinstance</span><span class="s3">(</span>
+        <span class="s1">prepared_request</span><span class="s3">.</span><span class="s1">_body_position</span><span class="s3">, </span><span class="s1">integer_types</span>
+    <span class="s3">):</span>
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">body_seek</span><span class="s3">(</span><span class="s1">prepared_request</span><span class="s3">.</span><span class="s1">_body_position</span><span class="s3">)</span>
+        <span class="s2">except </span><span class="s1">OSError</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">UnrewindableBodyError</span><span class="s3">(</span>
+                <span class="s5">&quot;An error occurred when rewinding request body for redirect.&quot;</span>
+            <span class="s3">)</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">UnrewindableBodyError</span><span class="s3">(</span><span class="s5">&quot;Unable to rewind request body for redirect.&quot;</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

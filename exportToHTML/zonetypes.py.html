@@ -1,0 +1,59 @@
+<html>
+<head>
+<title>zonetypes.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+zonetypes.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">&quot;&quot;&quot;Common zone-related types.&quot;&quot;&quot;</span>
+
+<span class="s0"># This is a separate file to avoid import circularity between dns.zone and</span>
+<span class="s0"># the implementation of the ZONEMD type.</span>
+
+<span class="s3">import </span><span class="s1">hashlib</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span>
+
+
+<span class="s3">class </span><span class="s1">DigestScheme</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;ZONEMD Scheme&quot;&quot;&quot;</span>
+
+    <span class="s1">SIMPLE </span><span class="s4">= </span><span class="s5">1</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">255</span>
+
+
+<span class="s3">class </span><span class="s1">DigestHashAlgorithm</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;ZONEMD Hash Algorithm&quot;&quot;&quot;</span>
+
+    <span class="s1">SHA384 </span><span class="s4">= </span><span class="s5">1</span>
+    <span class="s1">SHA512 </span><span class="s4">= </span><span class="s5">2</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">255</span>
+
+
+<span class="s1">_digest_hashers </span><span class="s4">= {</span>
+    <span class="s1">DigestHashAlgorithm</span><span class="s4">.</span><span class="s1">SHA384</span><span class="s4">: </span><span class="s1">hashlib</span><span class="s4">.</span><span class="s1">sha384</span><span class="s4">,</span>
+    <span class="s1">DigestHashAlgorithm</span><span class="s4">.</span><span class="s1">SHA512</span><span class="s4">: </span><span class="s1">hashlib</span><span class="s4">.</span><span class="s1">sha512</span><span class="s4">,</span>
+<span class="s4">}</span>
+</pre>
+</body>
+</html>

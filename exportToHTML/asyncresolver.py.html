@@ -1,0 +1,498 @@
+<html>
+<head>
+<title>asyncresolver.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+.s6 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+asyncresolver.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;Asynchronous DNS stub resolver.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">socket</span>
+<span class="s3">import </span><span class="s1">time</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Any</span><span class="s4">, </span><span class="s1">Dict</span><span class="s4">, </span><span class="s1">List</span><span class="s4">, </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Union</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_ddr</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncquery</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">query</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver  </span><span class="s0"># lgtm[py/import-and-import-from]</span>
+
+<span class="s0"># import some resolver symbols for brevity</span>
+<span class="s3">from </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver </span><span class="s3">import </span><span class="s1">NXDOMAIN</span><span class="s4">, </span><span class="s1">NoAnswer</span><span class="s4">, </span><span class="s1">NoRootSOA</span><span class="s4">, </span><span class="s1">NotAbsolute</span>
+
+<span class="s0"># for indentation purposes below</span>
+<span class="s1">_udp </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncquery</span><span class="s4">.</span><span class="s1">udp</span>
+<span class="s1">_tcp </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncquery</span><span class="s4">.</span><span class="s1">tcp</span>
+
+
+<span class="s3">class </span><span class="s1">Resolver</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">BaseResolver</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Asynchronous DNS stub resolver.&quot;&quot;&quot;</span>
+
+    <span class="s3">async def </span><span class="s1">resolve</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">qname</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">A</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+        <span class="s1">tcp</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+        <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">raise_on_no_answer</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+        <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s5">0</span><span class="s4">,</span>
+        <span class="s1">lifetime</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">search</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">Answer</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Query nameservers asynchronously to find the answer to the question. 
+ 
+        *backend*, a ``dns.asyncbackend.Backend``, or ``None``.  If ``None``, 
+        the default, then dnspython will use the default backend. 
+ 
+        See :py:func:`dns.resolver.Resolver.resolve()` for the 
+        documentation of the other parameters, exceptions, and return 
+        type of this method. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">resolution </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">_Resolution</span><span class="s4">(</span>
+            <span class="s1">self</span><span class="s4">, </span><span class="s1">qname</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">tcp</span><span class="s4">, </span><span class="s1">raise_on_no_answer</span><span class="s4">, </span><span class="s1">search</span>
+        <span class="s4">)</span>
+        <span class="s3">if not </span><span class="s1">backend</span><span class="s4">:</span>
+            <span class="s1">backend </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">get_default_backend</span><span class="s4">()</span>
+        <span class="s1">start </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+        <span class="s3">while True</span><span class="s4">:</span>
+            <span class="s4">(</span><span class="s1">request</span><span class="s4">, </span><span class="s1">answer</span><span class="s4">) = </span><span class="s1">resolution</span><span class="s4">.</span><span class="s1">next_request</span><span class="s4">()</span>
+            <span class="s0"># Note we need to say &quot;if answer is not None&quot; and not just</span>
+            <span class="s0"># &quot;if answer&quot; because answer implements __len__, and python</span>
+            <span class="s0"># will call that.  We want to return if we have an answer</span>
+            <span class="s0"># object, including in cases where its length is 0.</span>
+            <span class="s3">if </span><span class="s1">answer </span><span class="s3">is not None</span><span class="s4">:</span>
+                <span class="s0"># cache hit!</span>
+                <span class="s3">return </span><span class="s1">answer</span>
+            <span class="s3">assert </span><span class="s1">request </span><span class="s3">is not None  </span><span class="s0"># needed for type checking</span>
+            <span class="s1">done </span><span class="s4">= </span><span class="s3">False</span>
+            <span class="s3">while not </span><span class="s1">done</span><span class="s4">:</span>
+                <span class="s4">(</span><span class="s1">nameserver</span><span class="s4">, </span><span class="s1">tcp</span><span class="s4">, </span><span class="s1">backoff</span><span class="s4">) = </span><span class="s1">resolution</span><span class="s4">.</span><span class="s1">next_nameserver</span><span class="s4">()</span>
+                <span class="s3">if </span><span class="s1">backoff</span><span class="s4">:</span>
+                    <span class="s3">await </span><span class="s1">backend</span><span class="s4">.</span><span class="s1">sleep</span><span class="s4">(</span><span class="s1">backoff</span><span class="s4">)</span>
+                <span class="s1">timeout </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_compute_timeout</span><span class="s4">(</span><span class="s1">start</span><span class="s4">, </span><span class="s1">lifetime</span><span class="s4">, </span><span class="s1">resolution</span><span class="s4">.</span><span class="s1">errors</span><span class="s4">)</span>
+                <span class="s3">try</span><span class="s4">:</span>
+                    <span class="s1">response </span><span class="s4">= </span><span class="s3">await </span><span class="s1">nameserver</span><span class="s4">.</span><span class="s1">async_query</span><span class="s4">(</span>
+                        <span class="s1">request</span><span class="s4">,</span>
+                        <span class="s1">timeout</span><span class="s4">=</span><span class="s1">timeout</span><span class="s4">,</span>
+                        <span class="s1">source</span><span class="s4">=</span><span class="s1">source</span><span class="s4">,</span>
+                        <span class="s1">source_port</span><span class="s4">=</span><span class="s1">source_port</span><span class="s4">,</span>
+                        <span class="s1">max_size</span><span class="s4">=</span><span class="s1">tcp</span><span class="s4">,</span>
+                        <span class="s1">backend</span><span class="s4">=</span><span class="s1">backend</span><span class="s4">,</span>
+                    <span class="s4">)</span>
+                <span class="s3">except </span><span class="s1">Exception </span><span class="s3">as </span><span class="s1">ex</span><span class="s4">:</span>
+                    <span class="s4">(</span><span class="s1">_</span><span class="s4">, </span><span class="s1">done</span><span class="s4">) = </span><span class="s1">resolution</span><span class="s4">.</span><span class="s1">query_result</span><span class="s4">(</span><span class="s3">None</span><span class="s4">, </span><span class="s1">ex</span><span class="s4">)</span>
+                    <span class="s3">continue</span>
+                <span class="s4">(</span><span class="s1">answer</span><span class="s4">, </span><span class="s1">done</span><span class="s4">) = </span><span class="s1">resolution</span><span class="s4">.</span><span class="s1">query_result</span><span class="s4">(</span><span class="s1">response</span><span class="s4">, </span><span class="s3">None</span><span class="s4">)</span>
+                <span class="s0"># Note we need to say &quot;if answer is not None&quot; and not just</span>
+                <span class="s0"># &quot;if answer&quot; because answer implements __len__, and python</span>
+                <span class="s0"># will call that.  We want to return if we have an answer</span>
+                <span class="s0"># object, including in cases where its length is 0.</span>
+                <span class="s3">if </span><span class="s1">answer </span><span class="s3">is not None</span><span class="s4">:</span>
+                    <span class="s3">return </span><span class="s1">answer</span>
+
+    <span class="s3">async def </span><span class="s1">resolve_address</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">, </span><span class="s1">ipaddr</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, *</span><span class="s1">args</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">: </span><span class="s1">Any</span>
+    <span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">Answer</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Use an asynchronous resolver to run a reverse query for PTR 
+        records. 
+ 
+        This utilizes the resolve() method to perform a PTR lookup on the 
+        specified IP address. 
+ 
+        *ipaddr*, a ``str``, the IPv4 or IPv6 address you want to get 
+        the PTR record for. 
+ 
+        All other arguments that can be passed to the resolve() function 
+        except for rdtype and rdclass are also supported by this 
+        function. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0"># We make a modified kwargs for type checking happiness, as otherwise</span>
+        <span class="s0"># we get a legit warning about possibly having rdtype and rdclass</span>
+        <span class="s0"># in the kwargs more than once.</span>
+        <span class="s1">modified_kwargs</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">Any</span><span class="s4">] = {}</span>
+        <span class="s1">modified_kwargs</span><span class="s4">.</span><span class="s1">update</span><span class="s4">(</span><span class="s1">kwargs</span><span class="s4">)</span>
+        <span class="s1">modified_kwargs</span><span class="s4">[</span><span class="s6">&quot;rdtype&quot;</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">PTR</span>
+        <span class="s1">modified_kwargs</span><span class="s4">[</span><span class="s6">&quot;rdclass&quot;</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span>
+        <span class="s3">return await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span>
+            <span class="s1">dns</span><span class="s4">.</span><span class="s1">reversename</span><span class="s4">.</span><span class="s1">from_address</span><span class="s4">(</span><span class="s1">ipaddr</span><span class="s4">), *</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">modified_kwargs</span>
+        <span class="s4">)</span>
+
+    <span class="s3">async def </span><span class="s1">resolve_name</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+        <span class="s1">family</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_UNSPEC</span><span class="s4">,</span>
+        <span class="s4">**</span><span class="s1">kwargs</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">,</span>
+    <span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">HostAnswers</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Use an asynchronous resolver to query for address records. 
+ 
+        This utilizes the resolve() method to perform A and/or AAAA lookups on 
+        the specified name. 
+ 
+        *qname*, a ``dns.name.Name`` or ``str``, the name to resolve. 
+ 
+        *family*, an ``int``, the address family.  If socket.AF_UNSPEC 
+        (the default), both A and AAAA records will be retrieved. 
+ 
+        All other arguments that can be passed to the resolve() function 
+        except for rdtype and rdclass are also supported by this 
+        function. 
+        &quot;&quot;&quot;</span>
+        <span class="s0"># We make a modified kwargs for type checking happiness, as otherwise</span>
+        <span class="s0"># we get a legit warning about possibly having rdtype and rdclass</span>
+        <span class="s0"># in the kwargs more than once.</span>
+        <span class="s1">modified_kwargs</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">Any</span><span class="s4">] = {}</span>
+        <span class="s1">modified_kwargs</span><span class="s4">.</span><span class="s1">update</span><span class="s4">(</span><span class="s1">kwargs</span><span class="s4">)</span>
+        <span class="s1">modified_kwargs</span><span class="s4">.</span><span class="s1">pop</span><span class="s4">(</span><span class="s6">&quot;rdtype&quot;</span><span class="s4">, </span><span class="s3">None</span><span class="s4">)</span>
+        <span class="s1">modified_kwargs</span><span class="s4">[</span><span class="s6">&quot;rdclass&quot;</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span>
+
+        <span class="s3">if </span><span class="s1">family </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET</span><span class="s4">:</span>
+            <span class="s1">v4 </span><span class="s4">= </span><span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">A</span><span class="s4">, **</span><span class="s1">modified_kwargs</span><span class="s4">)</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">HostAnswers</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">v4</span><span class="s4">=</span><span class="s1">v4</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">family </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET6</span><span class="s4">:</span>
+            <span class="s1">v6 </span><span class="s4">= </span><span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">AAAA</span><span class="s4">, **</span><span class="s1">modified_kwargs</span><span class="s4">)</span>
+            <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">HostAnswers</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">v6</span><span class="s4">=</span><span class="s1">v6</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">family </span><span class="s4">!= </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_UNSPEC</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">NotImplementedError</span><span class="s4">(</span><span class="s6">f&quot;unknown address family </span><span class="s3">{</span><span class="s1">family</span><span class="s3">}</span><span class="s6">&quot;</span><span class="s4">)</span>
+
+        <span class="s1">raise_on_no_answer </span><span class="s4">= </span><span class="s1">modified_kwargs</span><span class="s4">.</span><span class="s1">pop</span><span class="s4">(</span><span class="s6">&quot;raise_on_no_answer&quot;</span><span class="s4">, </span><span class="s3">True</span><span class="s4">)</span>
+        <span class="s1">lifetime </span><span class="s4">= </span><span class="s1">modified_kwargs</span><span class="s4">.</span><span class="s1">pop</span><span class="s4">(</span><span class="s6">&quot;lifetime&quot;</span><span class="s4">, </span><span class="s3">None</span><span class="s4">)</span>
+        <span class="s1">start </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">()</span>
+        <span class="s1">v6 </span><span class="s4">= </span><span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span>
+            <span class="s1">name</span><span class="s4">,</span>
+            <span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">AAAA</span><span class="s4">,</span>
+            <span class="s1">raise_on_no_answer</span><span class="s4">=</span><span class="s3">False</span><span class="s4">,</span>
+            <span class="s1">lifetime</span><span class="s4">=</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_compute_timeout</span><span class="s4">(</span><span class="s1">start</span><span class="s4">, </span><span class="s1">lifetime</span><span class="s4">),</span>
+            <span class="s4">**</span><span class="s1">modified_kwargs</span><span class="s4">,</span>
+        <span class="s4">)</span>
+        <span class="s0"># Note that setting name ensures we query the same name</span>
+        <span class="s0"># for A as we did for AAAA.  (This is just in case search lists</span>
+        <span class="s0"># are active by default in the resolver configuration and</span>
+        <span class="s0"># we might be talking to a server that says NXDOMAIN when it</span>
+        <span class="s0"># wants to say NOERROR no data.</span>
+        <span class="s1">name </span><span class="s4">= </span><span class="s1">v6</span><span class="s4">.</span><span class="s1">qname</span>
+        <span class="s1">v4 </span><span class="s4">= </span><span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span>
+            <span class="s1">name</span><span class="s4">,</span>
+            <span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">A</span><span class="s4">,</span>
+            <span class="s1">raise_on_no_answer</span><span class="s4">=</span><span class="s3">False</span><span class="s4">,</span>
+            <span class="s1">lifetime</span><span class="s4">=</span><span class="s1">self</span><span class="s4">.</span><span class="s1">_compute_timeout</span><span class="s4">(</span><span class="s1">start</span><span class="s4">, </span><span class="s1">lifetime</span><span class="s4">),</span>
+            <span class="s4">**</span><span class="s1">modified_kwargs</span><span class="s4">,</span>
+        <span class="s4">)</span>
+        <span class="s1">answers </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">HostAnswers</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span>
+            <span class="s1">v6</span><span class="s4">=</span><span class="s1">v6</span><span class="s4">, </span><span class="s1">v4</span><span class="s4">=</span><span class="s1">v4</span><span class="s4">, </span><span class="s1">add_empty</span><span class="s4">=</span><span class="s3">not </span><span class="s1">raise_on_no_answer</span>
+        <span class="s4">)</span>
+        <span class="s3">if not </span><span class="s1">answers</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">NoAnswer</span><span class="s4">(</span><span class="s1">response</span><span class="s4">=</span><span class="s1">v6</span><span class="s4">.</span><span class="s1">response</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">answers</span>
+
+    <span class="s0"># pylint: disable=redefined-outer-name</span>
+
+    <span class="s3">async def </span><span class="s1">canonical_name</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Determine the canonical name of *name*. 
+ 
+        The canonical name is the name the resolver uses for queries 
+        after all CNAME and DNAME renamings have been applied. 
+ 
+        *name*, a ``dns.name.Name`` or ``str``, the query name. 
+ 
+        This method can raise any exception that ``resolve()`` can 
+        raise, other than ``dns.resolver.NoAnswer`` and 
+        ``dns.resolver.NXDOMAIN``. 
+ 
+        Returns a ``dns.name.Name``. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">answer </span><span class="s4">= </span><span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">raise_on_no_answer</span><span class="s4">=</span><span class="s3">False</span><span class="s4">)</span>
+            <span class="s1">canonical_name </span><span class="s4">= </span><span class="s1">answer</span><span class="s4">.</span><span class="s1">canonical_name</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">NXDOMAIN </span><span class="s3">as </span><span class="s1">e</span><span class="s4">:</span>
+            <span class="s1">canonical_name </span><span class="s4">= </span><span class="s1">e</span><span class="s4">.</span><span class="s1">canonical_name</span>
+        <span class="s3">return </span><span class="s1">canonical_name</span>
+
+    <span class="s3">async def </span><span class="s1">try_ddr</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">lifetime</span><span class="s4">: </span><span class="s1">float </span><span class="s4">= </span><span class="s5">5.0</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Try to update the resolver's nameservers using Discovery of Designated 
+        Resolvers (DDR).  If successful, the resolver will subsequently use 
+        DNS-over-HTTPS or DNS-over-TLS for future queries. 
+ 
+        *lifetime*, a float, is the maximum time to spend attempting DDR.  The default 
+        is 5 seconds. 
+ 
+        If the SVCB query is successful and results in a non-empty list of nameservers, 
+        then the resolver's nameservers are set to the returned servers in priority 
+        order. 
+ 
+        The current implementation does not use any address hints from the SVCB record, 
+        nor does it resolve addresses for the SCVB target name, rather it assumes that 
+        the bootstrap nameserver will always be one of the addresses and uses it. 
+        A future revision to the code may offer fuller support.  The code verifies that 
+        the bootstrap nameserver is in the Subject Alternative Name field of the 
+        TLS certficate. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">expiration </span><span class="s4">= </span><span class="s1">time</span><span class="s4">.</span><span class="s1">time</span><span class="s4">() + </span><span class="s1">lifetime</span>
+            <span class="s1">answer </span><span class="s4">= </span><span class="s3">await </span><span class="s1">self</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span>
+                <span class="s1">dns</span><span class="s4">.</span><span class="s1">_ddr</span><span class="s4">.</span><span class="s1">_local_resolver_name</span><span class="s4">, </span><span class="s6">&quot;svcb&quot;</span><span class="s4">, </span><span class="s1">lifetime</span><span class="s4">=</span><span class="s1">lifetime</span>
+            <span class="s4">)</span>
+            <span class="s1">timeout </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">query</span><span class="s4">.</span><span class="s1">_remaining</span><span class="s4">(</span><span class="s1">expiration</span><span class="s4">)</span>
+            <span class="s1">nameservers </span><span class="s4">= </span><span class="s3">await </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">_ddr</span><span class="s4">.</span><span class="s1">_get_nameservers_async</span><span class="s4">(</span><span class="s1">answer</span><span class="s4">, </span><span class="s1">timeout</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">nameservers</span><span class="s4">) &gt; </span><span class="s5">0</span><span class="s4">:</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">nameservers </span><span class="s4">= </span><span class="s1">nameservers</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s3">pass</span>
+
+
+<span class="s1">default_resolver </span><span class="s4">= </span><span class="s3">None</span>
+
+
+<span class="s3">def </span><span class="s1">get_default_resolver</span><span class="s4">() </span><span class="s1">-&gt; Resolver</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Get the default asynchronous resolver, initializing it if necessary.&quot;&quot;&quot;</span>
+    <span class="s3">if </span><span class="s1">default_resolver </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s1">reset_default_resolver</span><span class="s4">()</span>
+    <span class="s3">assert </span><span class="s1">default_resolver </span><span class="s3">is not None</span>
+    <span class="s3">return </span><span class="s1">default_resolver</span>
+
+
+<span class="s3">def </span><span class="s1">reset_default_resolver</span><span class="s4">() </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Re-initialize default asynchronous resolver. 
+ 
+    Note that the resolver configuration (i.e. /etc/resolv.conf on UNIX 
+    systems) will be re-read immediately. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">global </span><span class="s1">default_resolver</span>
+    <span class="s1">default_resolver </span><span class="s4">= </span><span class="s1">Resolver</span><span class="s4">()</span>
+
+
+<span class="s3">async def </span><span class="s1">resolve</span><span class="s4">(</span>
+    <span class="s1">qname</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">A</span><span class="s4">,</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+    <span class="s1">tcp</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">raise_on_no_answer</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s5">0</span><span class="s4">,</span>
+    <span class="s1">lifetime</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">search</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">Answer</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Query nameservers asynchronously to find the answer to the question. 
+ 
+    This is a convenience function that uses the default resolver 
+    object to make the query. 
+ 
+    See :py:func:`dns.asyncresolver.Resolver.resolve` for more 
+    information on the parameters. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return await </span><span class="s1">get_default_resolver</span><span class="s4">().</span><span class="s1">resolve</span><span class="s4">(</span>
+        <span class="s1">qname</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">,</span>
+        <span class="s1">tcp</span><span class="s4">,</span>
+        <span class="s1">source</span><span class="s4">,</span>
+        <span class="s1">raise_on_no_answer</span><span class="s4">,</span>
+        <span class="s1">source_port</span><span class="s4">,</span>
+        <span class="s1">lifetime</span><span class="s4">,</span>
+        <span class="s1">search</span><span class="s4">,</span>
+        <span class="s1">backend</span><span class="s4">,</span>
+    <span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">resolve_address</span><span class="s4">(</span>
+    <span class="s1">ipaddr</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, *</span><span class="s1">args</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">: </span><span class="s1">Any</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">Answer</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Use a resolver to run a reverse query for PTR records. 
+ 
+    See :py:func:`dns.asyncresolver.Resolver.resolve_address` for more 
+    information on the parameters. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return await </span><span class="s1">get_default_resolver</span><span class="s4">().</span><span class="s1">resolve_address</span><span class="s4">(</span><span class="s1">ipaddr</span><span class="s4">, *</span><span class="s1">args</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">resolve_name</span><span class="s4">(</span>
+    <span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">family</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_UNSPEC</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">: </span><span class="s1">Any</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">HostAnswers</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Use a resolver to asynchronously query for address records. 
+ 
+    See :py:func:`dns.asyncresolver.Resolver.resolve_name` for more 
+    information on the parameters. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return await </span><span class="s1">get_default_resolver</span><span class="s4">().</span><span class="s1">resolve_name</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">family</span><span class="s4">, **</span><span class="s1">kwargs</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">canonical_name</span><span class="s4">(</span><span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Determine the canonical name of *name*. 
+ 
+    See :py:func:`dns.resolver.Resolver.canonical_name` for more 
+    information on the parameters and possible exceptions. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return await </span><span class="s1">get_default_resolver</span><span class="s4">().</span><span class="s1">canonical_name</span><span class="s4">(</span><span class="s1">name</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">try_ddr</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">: </span><span class="s1">float </span><span class="s4">= </span><span class="s5">5.0</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Try to update the default resolver's nameservers using Discovery of Designated 
+    Resolvers (DDR).  If successful, the resolver will subsequently use 
+    DNS-over-HTTPS or DNS-over-TLS for future queries. 
+ 
+    See :py:func:`dns.resolver.Resolver.try_ddr` for more information. 
+    &quot;&quot;&quot;</span>
+    <span class="s3">return await </span><span class="s1">get_default_resolver</span><span class="s4">().</span><span class="s1">try_ddr</span><span class="s4">(</span><span class="s1">timeout</span><span class="s4">)</span>
+
+
+<span class="s3">async def </span><span class="s1">zone_for_name</span><span class="s4">(</span>
+    <span class="s1">name</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+    <span class="s1">tcp</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">resolver</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Resolver</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Find the name of the zone which contains the specified name. 
+ 
+    See :py:func:`dns.resolver.Resolver.zone_for_name` for more 
+    information on the parameters and possible exceptions. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+        <span class="s1">name </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">resolver </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s1">resolver </span><span class="s4">= </span><span class="s1">get_default_resolver</span><span class="s4">()</span>
+    <span class="s3">if not </span><span class="s1">name</span><span class="s4">.</span><span class="s1">is_absolute</span><span class="s4">():</span>
+        <span class="s3">raise </span><span class="s1">NotAbsolute</span><span class="s4">(</span><span class="s1">name</span><span class="s4">)</span>
+    <span class="s3">while True</span><span class="s4">:</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">answer </span><span class="s4">= </span><span class="s3">await </span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span>
+                <span class="s1">name</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">SOA</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">tcp</span><span class="s4">, </span><span class="s1">backend</span><span class="s4">=</span><span class="s1">backend</span>
+            <span class="s4">)</span>
+            <span class="s3">assert </span><span class="s1">answer</span><span class="s4">.</span><span class="s1">rrset </span><span class="s3">is not None</span>
+            <span class="s3">if </span><span class="s1">answer</span><span class="s4">.</span><span class="s1">rrset</span><span class="s4">.</span><span class="s1">name </span><span class="s4">== </span><span class="s1">name</span><span class="s4">:</span>
+                <span class="s3">return </span><span class="s1">name</span>
+            <span class="s0"># otherwise we were CNAMEd or DNAMEd and need to look higher</span>
+        <span class="s3">except </span><span class="s4">(</span><span class="s1">NXDOMAIN</span><span class="s4">, </span><span class="s1">NoAnswer</span><span class="s4">):</span>
+            <span class="s3">pass</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">name </span><span class="s4">= </span><span class="s1">name</span><span class="s4">.</span><span class="s1">parent</span><span class="s4">()</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">NoParent</span><span class="s4">:  </span><span class="s0"># pragma: no cover</span>
+            <span class="s3">raise </span><span class="s1">NoRootSOA</span>
+
+
+<span class="s3">async def </span><span class="s1">make_resolver_at</span><span class="s4">(</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s5">53</span><span class="s4">,</span>
+    <span class="s1">family</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_UNSPEC</span><span class="s4">,</span>
+    <span class="s1">resolver</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Resolver</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; Resolver</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Make a stub resolver using the specified destination as the full resolver. 
+ 
+    *where*, a ``dns.name.Name`` or ``str`` the domain name or IP address of the 
+    full resolver. 
+ 
+    *port*, an ``int``, the port to use.  If not specified, the default is 53. 
+ 
+    *family*, an ``int``, the address family to use.  This parameter is used if 
+    *where* is not an address.  The default is ``socket.AF_UNSPEC`` in which case 
+    the first address returned by ``resolve_name()`` will be used, otherwise the 
+    first address of the specified family will be used. 
+ 
+    *resolver*, a ``dns.asyncresolver.Resolver`` or ``None``, the resolver to use for 
+    resolution of hostnames.  If not specified, the default resolver will be used. 
+ 
+    Returns a ``dns.resolver.Resolver`` or raises an exception. 
+    &quot;&quot;&quot;</span>
+    <span class="s3">if </span><span class="s1">resolver </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s1">resolver </span><span class="s4">= </span><span class="s1">get_default_resolver</span><span class="s4">()</span>
+    <span class="s1">nameservers</span><span class="s4">: </span><span class="s1">List</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">nameserver</span><span class="s4">.</span><span class="s1">Nameserver</span><span class="s4">]] = []</span>
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">where</span><span class="s4">, </span><span class="s1">str</span><span class="s4">) </span><span class="s3">and </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">is_address</span><span class="s4">(</span><span class="s1">where</span><span class="s4">):</span>
+        <span class="s1">nameservers</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">nameserver</span><span class="s4">.</span><span class="s1">Do53Nameserver</span><span class="s4">(</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">))</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">answers </span><span class="s4">= </span><span class="s3">await </span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">resolve_name</span><span class="s4">(</span><span class="s1">where</span><span class="s4">, </span><span class="s1">family</span><span class="s4">)</span>
+        <span class="s3">for </span><span class="s1">address </span><span class="s3">in </span><span class="s1">answers</span><span class="s4">.</span><span class="s1">addresses</span><span class="s4">():</span>
+            <span class="s1">nameservers</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">nameserver</span><span class="s4">.</span><span class="s1">Do53Nameserver</span><span class="s4">(</span><span class="s1">address</span><span class="s4">, </span><span class="s1">port</span><span class="s4">))</span>
+    <span class="s1">res </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncresolver</span><span class="s4">.</span><span class="s1">Resolver</span><span class="s4">(</span><span class="s1">configure</span><span class="s4">=</span><span class="s3">False</span><span class="s4">)</span>
+    <span class="s1">res</span><span class="s4">.</span><span class="s1">nameservers </span><span class="s4">= </span><span class="s1">nameservers</span>
+    <span class="s3">return </span><span class="s1">res</span>
+
+
+<span class="s3">async def </span><span class="s1">resolve_at</span><span class="s4">(</span>
+    <span class="s1">where</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">qname</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">],</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">A</span><span class="s4">,</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+    <span class="s1">tcp</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+    <span class="s1">source</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">raise_on_no_answer</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">True</span><span class="s4">,</span>
+    <span class="s1">source_port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s5">0</span><span class="s4">,</span>
+    <span class="s1">lifetime</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">float</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">search</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">backend</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">asyncbackend</span><span class="s4">.</span><span class="s1">Backend</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">port</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s5">53</span><span class="s4">,</span>
+    <span class="s1">family</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_UNSPEC</span><span class="s4">,</span>
+    <span class="s1">resolver</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Resolver</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; dns</span><span class="s4">.</span><span class="s1">resolver</span><span class="s4">.</span><span class="s1">Answer</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Query nameservers to find the answer to the question. 
+ 
+    This is a convenience function that calls ``dns.asyncresolver.make_resolver_at()`` 
+    to make a resolver, and then uses it to resolve the query. 
+ 
+    See ``dns.asyncresolver.Resolver.resolve`` for more information on the resolution 
+    parameters, and ``dns.asyncresolver.make_resolver_at`` for information about the 
+    resolver parameters *where*, *port*, *family*, and *resolver*. 
+ 
+    If making more than one query, it is more efficient to call 
+    ``dns.asyncresolver.make_resolver_at()`` and then use that resolver for the queries 
+    instead of calling ``resolve_at()`` multiple times. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">res </span><span class="s4">= </span><span class="s3">await </span><span class="s1">make_resolver_at</span><span class="s4">(</span><span class="s1">where</span><span class="s4">, </span><span class="s1">port</span><span class="s4">, </span><span class="s1">family</span><span class="s4">, </span><span class="s1">resolver</span><span class="s4">)</span>
+    <span class="s3">return await </span><span class="s1">res</span><span class="s4">.</span><span class="s1">resolve</span><span class="s4">(</span>
+        <span class="s1">qname</span><span class="s4">,</span>
+        <span class="s1">rdtype</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">,</span>
+        <span class="s1">tcp</span><span class="s4">,</span>
+        <span class="s1">source</span><span class="s4">,</span>
+        <span class="s1">raise_on_no_answer</span><span class="s4">,</span>
+        <span class="s1">source_port</span><span class="s4">,</span>
+        <span class="s1">lifetime</span><span class="s4">,</span>
+        <span class="s1">search</span><span class="s4">,</span>
+        <span class="s1">backend</span><span class="s4">,</span>
+    <span class="s4">)</span>
+</pre>
+</body>
+</html>

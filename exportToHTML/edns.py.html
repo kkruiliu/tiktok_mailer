@@ -1,0 +1,596 @@
+<html>
+<head>
+<title>edns.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+.s6 { color: #6aab73;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+edns.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2009-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;EDNS Options&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">binascii</span>
+<span class="s3">import </span><span class="s1">math</span>
+<span class="s3">import </span><span class="s1">socket</span>
+<span class="s3">import </span><span class="s1">struct</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Any</span><span class="s4">, </span><span class="s1">Dict</span><span class="s4">, </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Union</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span>
+
+
+<span class="s3">class </span><span class="s1">OptionType</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s0">#: NSID</span>
+    <span class="s1">NSID </span><span class="s4">= </span><span class="s5">3</span>
+    <span class="s0">#: DAU</span>
+    <span class="s1">DAU </span><span class="s4">= </span><span class="s5">5</span>
+    <span class="s0">#: DHU</span>
+    <span class="s1">DHU </span><span class="s4">= </span><span class="s5">6</span>
+    <span class="s0">#: N3U</span>
+    <span class="s1">N3U </span><span class="s4">= </span><span class="s5">7</span>
+    <span class="s0">#: ECS (client-subnet)</span>
+    <span class="s1">ECS </span><span class="s4">= </span><span class="s5">8</span>
+    <span class="s0">#: EXPIRE</span>
+    <span class="s1">EXPIRE </span><span class="s4">= </span><span class="s5">9</span>
+    <span class="s0">#: COOKIE</span>
+    <span class="s1">COOKIE </span><span class="s4">= </span><span class="s5">10</span>
+    <span class="s0">#: KEEPALIVE</span>
+    <span class="s1">KEEPALIVE </span><span class="s4">= </span><span class="s5">11</span>
+    <span class="s0">#: PADDING</span>
+    <span class="s1">PADDING </span><span class="s4">= </span><span class="s5">12</span>
+    <span class="s0">#: CHAIN</span>
+    <span class="s1">CHAIN </span><span class="s4">= </span><span class="s5">13</span>
+    <span class="s0">#: EDE (extended-dns-error)</span>
+    <span class="s1">EDE </span><span class="s4">= </span><span class="s5">15</span>
+    <span class="s0">#: REPORTCHANNEL</span>
+    <span class="s1">REPORTCHANNEL </span><span class="s4">= </span><span class="s5">18</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">65535</span>
+
+
+<span class="s3">class </span><span class="s1">Option</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Base class for all EDNS option types.&quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]):</span>
+        <span class="s2">&quot;&quot;&quot;Initialize an option. 
+ 
+        *otype*, a ``dns.edns.OptionType``, is the option type. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">otype </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s2">&quot;&quot;&quot;Convert an option to wire format. 
+ 
+        Returns a ``bytes`` or ``None``. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">: </span><span class="s6">&quot;dns.wire.Parser&quot;</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s6">&quot;Option&quot;</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Build an EDNS option object from wire format. 
+ 
+        *otype*, a ``dns.edns.OptionType``, is the option type. 
+ 
+        *parser*, a ``dns.wire.Parser``, the parser, which should be 
+        restructed to the option length. 
+ 
+        Returns a ``dns.edns.Option``. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">def </span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Compare an EDNS option with another option of the same type. 
+ 
+        Returns &lt; 0 if &lt; *other*, 0 if == *other*, and &gt; 0 if &gt; *other*. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">wire </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+        <span class="s1">owire </span><span class="s4">= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">()</span>
+        <span class="s3">if </span><span class="s1">wire </span><span class="s4">== </span><span class="s1">owire</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s5">0</span>
+        <span class="s3">if </span><span class="s1">wire </span><span class="s4">&gt; </span><span class="s1">owire</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s5">1</span>
+        <span class="s3">return </span><span class="s4">-</span><span class="s5">1</span>
+
+    <span class="s3">def </span><span class="s1">__eq__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Option</span><span class="s4">):</span>
+            <span class="s3">return False</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">otype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">otype</span><span class="s4">:</span>
+            <span class="s3">return False</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) == </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__ne__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Option</span><span class="s4">):</span>
+            <span class="s3">return True</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">otype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">otype</span><span class="s4">:</span>
+            <span class="s3">return True</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) != </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__lt__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Option</span><span class="s4">) </span><span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">otype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">otype</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &lt; </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__le__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Option</span><span class="s4">) </span><span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">otype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">otype</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &lt;= </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__ge__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Option</span><span class="s4">) </span><span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">otype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">otype</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &gt;= </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__gt__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">other</span><span class="s4">):</span>
+        <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">other</span><span class="s4">, </span><span class="s1">Option</span><span class="s4">) </span><span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">otype </span><span class="s4">!= </span><span class="s1">other</span><span class="s4">.</span><span class="s1">otype</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">NotImplemented</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_cmp</span><span class="s4">(</span><span class="s1">other</span><span class="s4">) &gt; </span><span class="s5">0</span>
+
+    <span class="s3">def </span><span class="s1">__str__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">()</span>
+
+
+<span class="s3">class </span><span class="s1">GenericOption</span><span class="s4">(</span><span class="s1">Option</span><span class="s4">):  </span><span class="s0"># lgtm[py/missing-equals]</span>
+    <span class="s2">&quot;&quot;&quot;Generic Option Class 
+ 
+    This class is used for EDNS option types for which we have no better 
+    implementation. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">data</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">data </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">.</span><span class="s1">_as_bytes</span><span class="s4">(</span><span class="s1">data</span><span class="s4">, </span><span class="s3">True</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s3">if </span><span class="s1">file</span><span class="s4">:</span>
+            <span class="s1">file</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">data</span><span class="s4">)</span>
+            <span class="s3">return None</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">data</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s6">&quot;Generic %d&quot; </span><span class="s4">% </span><span class="s1">self</span><span class="s4">.</span><span class="s1">otype</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">parser</span><span class="s4">: </span><span class="s6">&quot;dns.wire.Parser&quot;</span>
+    <span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_remaining</span><span class="s4">())</span>
+
+
+<span class="s3">class </span><span class="s1">ECSOption</span><span class="s4">(</span><span class="s1">Option</span><span class="s4">):  </span><span class="s0"># lgtm[py/missing-equals]</span>
+    <span class="s2">&quot;&quot;&quot;EDNS Client Subnet (ECS, RFC7871)&quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">address</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, </span><span class="s1">srclen</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">, </span><span class="s1">scopelen</span><span class="s4">: </span><span class="s1">int </span><span class="s4">= </span><span class="s5">0</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;*address*, a ``str``, is the client address information. 
+ 
+        *srclen*, an ``int``, the source prefix length, which is the 
+        leftmost number of bits of the address to be used for the 
+        lookup.  The default is 24 for IPv4 and 56 for IPv6. 
+ 
+        *scopelen*, an ``int``, the scope prefix length.  This value 
+        must be 0 in queries, and should be set in responses. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">ECS</span><span class="s4">)</span>
+        <span class="s1">af </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">af_for_address</span><span class="s4">(</span><span class="s1">address</span><span class="s4">)</span>
+
+        <span class="s3">if </span><span class="s1">af </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET6</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">family </span><span class="s4">= </span><span class="s5">2</span>
+            <span class="s3">if </span><span class="s1">srclen </span><span class="s3">is None</span><span class="s4">:</span>
+                <span class="s1">srclen </span><span class="s4">= </span><span class="s5">56</span>
+            <span class="s1">address </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">.</span><span class="s1">_as_ipv6_address</span><span class="s4">(</span><span class="s1">address</span><span class="s4">)</span>
+            <span class="s1">srclen </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">.</span><span class="s1">_as_int</span><span class="s4">(</span><span class="s1">srclen</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s5">128</span><span class="s4">)</span>
+            <span class="s1">scopelen </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">.</span><span class="s1">_as_int</span><span class="s4">(</span><span class="s1">scopelen</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s5">128</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">af </span><span class="s4">== </span><span class="s1">socket</span><span class="s4">.</span><span class="s1">AF_INET</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">family </span><span class="s4">= </span><span class="s5">1</span>
+            <span class="s3">if </span><span class="s1">srclen </span><span class="s3">is None</span><span class="s4">:</span>
+                <span class="s1">srclen </span><span class="s4">= </span><span class="s5">24</span>
+            <span class="s1">address </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">.</span><span class="s1">_as_ipv4_address</span><span class="s4">(</span><span class="s1">address</span><span class="s4">)</span>
+            <span class="s1">srclen </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">.</span><span class="s1">_as_int</span><span class="s4">(</span><span class="s1">srclen</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s5">32</span><span class="s4">)</span>
+            <span class="s1">scopelen </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">Rdata</span><span class="s4">.</span><span class="s1">_as_int</span><span class="s4">(</span><span class="s1">scopelen</span><span class="s4">, </span><span class="s5">0</span><span class="s4">, </span><span class="s5">32</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:  </span><span class="s0"># pragma: no cover   (this will never happen)</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">&quot;Bad address family&quot;</span><span class="s4">)</span>
+
+        <span class="s3">assert </span><span class="s1">srclen </span><span class="s3">is not None</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">address </span><span class="s4">= </span><span class="s1">address</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">srclen </span><span class="s4">= </span><span class="s1">srclen</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">scopelen </span><span class="s4">= </span><span class="s1">scopelen</span>
+
+        <span class="s1">addrdata </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">inet</span><span class="s4">.</span><span class="s1">inet_pton</span><span class="s4">(</span><span class="s1">af</span><span class="s4">, </span><span class="s1">address</span><span class="s4">)</span>
+        <span class="s1">nbytes </span><span class="s4">= </span><span class="s1">int</span><span class="s4">(</span><span class="s1">math</span><span class="s4">.</span><span class="s1">ceil</span><span class="s4">(</span><span class="s1">srclen </span><span class="s4">/ </span><span class="s5">8.0</span><span class="s4">))</span>
+
+        <span class="s0"># Truncate to srclen and pad to the end of the last octet needed</span>
+        <span class="s0"># See RFC section 6</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">addrdata </span><span class="s4">= </span><span class="s1">addrdata</span><span class="s4">[:</span><span class="s1">nbytes</span><span class="s4">]</span>
+        <span class="s1">nbits </span><span class="s4">= </span><span class="s1">srclen </span><span class="s4">% </span><span class="s5">8</span>
+        <span class="s3">if </span><span class="s1">nbits </span><span class="s4">!= </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s1">last </span><span class="s4">= </span><span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span><span class="s6">&quot;B&quot;</span><span class="s4">, </span><span class="s1">ord</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">addrdata</span><span class="s4">[-</span><span class="s5">1</span><span class="s4">:]) &amp; (</span><span class="s5">0xFF </span><span class="s4">&lt;&lt; (</span><span class="s5">8 </span><span class="s4">- </span><span class="s1">nbits</span><span class="s4">)))</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">addrdata </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">addrdata</span><span class="s4">[:-</span><span class="s5">1</span><span class="s4">] + </span><span class="s1">last</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s6">f&quot;ECS </span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">address</span><span class="s3">}</span><span class="s6">/</span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">srclen</span><span class="s3">} </span><span class="s6">scope/</span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">scopelen</span><span class="s3">}</span><span class="s6">&quot;</span>
+
+    <span class="s4">@</span><span class="s1">staticmethod</span>
+    <span class="s3">def </span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Convert a string into a `dns.edns.ECSOption` 
+ 
+        *text*, a `str`, the text form of the option. 
+ 
+        Returns a `dns.edns.ECSOption`. 
+ 
+        Examples: 
+ 
+        &gt;&gt;&gt; import dns.edns 
+        &gt;&gt;&gt; 
+        &gt;&gt;&gt; # basic example 
+        &gt;&gt;&gt; dns.edns.ECSOption.from_text('1.2.3.4/24') 
+        &gt;&gt;&gt; 
+        &gt;&gt;&gt; # also understands scope 
+        &gt;&gt;&gt; dns.edns.ECSOption.from_text('1.2.3.4/24/32') 
+        &gt;&gt;&gt; 
+        &gt;&gt;&gt; # IPv6 
+        &gt;&gt;&gt; dns.edns.ECSOption.from_text('2001:4b98::1/64/64') 
+        &gt;&gt;&gt; 
+        &gt;&gt;&gt; # it understands results from `dns.edns.ECSOption.to_text()` 
+        &gt;&gt;&gt; dns.edns.ECSOption.from_text('ECS 1.2.3.4/24/32') 
+        &quot;&quot;&quot;</span>
+        <span class="s1">optional_prefix </span><span class="s4">= </span><span class="s6">&quot;ECS&quot;</span>
+        <span class="s1">tokens </span><span class="s4">= </span><span class="s1">text</span><span class="s4">.</span><span class="s1">split</span><span class="s4">()</span>
+        <span class="s1">ecs_text </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">tokens</span><span class="s4">) == </span><span class="s5">1</span><span class="s4">:</span>
+            <span class="s1">ecs_text </span><span class="s4">= </span><span class="s1">tokens</span><span class="s4">[</span><span class="s5">0</span><span class="s4">]</span>
+        <span class="s3">elif </span><span class="s1">len</span><span class="s4">(</span><span class="s1">tokens</span><span class="s4">) == </span><span class="s5">2</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">tokens</span><span class="s4">[</span><span class="s5">0</span><span class="s4">] != </span><span class="s1">optional_prefix</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">f'could not parse ECS from &quot;</span><span class="s3">{</span><span class="s1">text</span><span class="s3">}</span><span class="s6">&quot;'</span><span class="s4">)</span>
+            <span class="s1">ecs_text </span><span class="s4">= </span><span class="s1">tokens</span><span class="s4">[</span><span class="s5">1</span><span class="s4">]</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">f'could not parse ECS from &quot;</span><span class="s3">{</span><span class="s1">text</span><span class="s3">}</span><span class="s6">&quot;'</span><span class="s4">)</span>
+        <span class="s1">n_slashes </span><span class="s4">= </span><span class="s1">ecs_text</span><span class="s4">.</span><span class="s1">count</span><span class="s4">(</span><span class="s6">&quot;/&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">n_slashes </span><span class="s4">== </span><span class="s5">1</span><span class="s4">:</span>
+            <span class="s1">address</span><span class="s4">, </span><span class="s1">tsrclen </span><span class="s4">= </span><span class="s1">ecs_text</span><span class="s4">.</span><span class="s1">split</span><span class="s4">(</span><span class="s6">&quot;/&quot;</span><span class="s4">)</span>
+            <span class="s1">tscope </span><span class="s4">= </span><span class="s6">&quot;0&quot;</span>
+        <span class="s3">elif </span><span class="s1">n_slashes </span><span class="s4">== </span><span class="s5">2</span><span class="s4">:</span>
+            <span class="s1">address</span><span class="s4">, </span><span class="s1">tsrclen</span><span class="s4">, </span><span class="s1">tscope </span><span class="s4">= </span><span class="s1">ecs_text</span><span class="s4">.</span><span class="s1">split</span><span class="s4">(</span><span class="s6">&quot;/&quot;</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">f'could not parse ECS from &quot;</span><span class="s3">{</span><span class="s1">text</span><span class="s3">}</span><span class="s6">&quot;'</span><span class="s4">)</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">scope </span><span class="s4">= </span><span class="s1">int</span><span class="s4">(</span><span class="s1">tscope</span><span class="s4">)</span>
+        <span class="s3">except </span><span class="s1">ValueError</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">&quot;invalid scope &quot; </span><span class="s4">+ </span><span class="s6">f'&quot;</span><span class="s3">{</span><span class="s1">tscope</span><span class="s3">}</span><span class="s6">&quot;: scope must be an integer'</span><span class="s4">)</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">srclen </span><span class="s4">= </span><span class="s1">int</span><span class="s4">(</span><span class="s1">tsrclen</span><span class="s4">)</span>
+        <span class="s3">except </span><span class="s1">ValueError</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span>
+                <span class="s6">&quot;invalid srclen &quot; </span><span class="s4">+ </span><span class="s6">f'&quot;</span><span class="s3">{</span><span class="s1">tsrclen</span><span class="s3">}</span><span class="s6">&quot;: srclen must be an integer'</span>
+            <span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">ECSOption</span><span class="s4">(</span><span class="s1">address</span><span class="s4">, </span><span class="s1">srclen</span><span class="s4">, </span><span class="s1">scope</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s1">value </span><span class="s4">= (</span>
+            <span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span><span class="s6">&quot;!HBB&quot;</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">family</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">srclen</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">scopelen</span><span class="s4">) + </span><span class="s1">self</span><span class="s4">.</span><span class="s1">addrdata</span>
+        <span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">file</span><span class="s4">:</span>
+            <span class="s1">file</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s3">return None</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">parser</span><span class="s4">: </span><span class="s6">&quot;dns.wire.Parser&quot;</span>
+    <span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+        <span class="s1">family</span><span class="s4">, </span><span class="s1">src</span><span class="s4">, </span><span class="s1">scope </span><span class="s4">= </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_struct</span><span class="s4">(</span><span class="s6">&quot;!HBB&quot;</span><span class="s4">)</span>
+        <span class="s1">addrlen </span><span class="s4">= </span><span class="s1">int</span><span class="s4">(</span><span class="s1">math</span><span class="s4">.</span><span class="s1">ceil</span><span class="s4">(</span><span class="s1">src </span><span class="s4">/ </span><span class="s5">8.0</span><span class="s4">))</span>
+        <span class="s1">prefix </span><span class="s4">= </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_bytes</span><span class="s4">(</span><span class="s1">addrlen</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">family </span><span class="s4">== </span><span class="s5">1</span><span class="s4">:</span>
+            <span class="s1">pad </span><span class="s4">= </span><span class="s5">4 </span><span class="s4">- </span><span class="s1">addrlen</span>
+            <span class="s1">addr </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">prefix </span><span class="s4">+ </span><span class="s7">b&quot;</span><span class="s3">\x00</span><span class="s7">&quot; </span><span class="s4">* </span><span class="s1">pad</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">family </span><span class="s4">== </span><span class="s5">2</span><span class="s4">:</span>
+            <span class="s1">pad </span><span class="s4">= </span><span class="s5">16 </span><span class="s4">- </span><span class="s1">addrlen</span>
+            <span class="s1">addr </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">prefix </span><span class="s4">+ </span><span class="s7">b&quot;</span><span class="s3">\x00</span><span class="s7">&quot; </span><span class="s4">* </span><span class="s1">pad</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">&quot;unsupported family&quot;</span><span class="s4">)</span>
+
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">addr</span><span class="s4">, </span><span class="s1">src</span><span class="s4">, </span><span class="s1">scope</span><span class="s4">)</span>
+
+
+<span class="s3">class </span><span class="s1">EDECode</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s1">OTHER </span><span class="s4">= </span><span class="s5">0</span>
+    <span class="s1">UNSUPPORTED_DNSKEY_ALGORITHM </span><span class="s4">= </span><span class="s5">1</span>
+    <span class="s1">UNSUPPORTED_DS_DIGEST_TYPE </span><span class="s4">= </span><span class="s5">2</span>
+    <span class="s1">STALE_ANSWER </span><span class="s4">= </span><span class="s5">3</span>
+    <span class="s1">FORGED_ANSWER </span><span class="s4">= </span><span class="s5">4</span>
+    <span class="s1">DNSSEC_INDETERMINATE </span><span class="s4">= </span><span class="s5">5</span>
+    <span class="s1">DNSSEC_BOGUS </span><span class="s4">= </span><span class="s5">6</span>
+    <span class="s1">SIGNATURE_EXPIRED </span><span class="s4">= </span><span class="s5">7</span>
+    <span class="s1">SIGNATURE_NOT_YET_VALID </span><span class="s4">= </span><span class="s5">8</span>
+    <span class="s1">DNSKEY_MISSING </span><span class="s4">= </span><span class="s5">9</span>
+    <span class="s1">RRSIGS_MISSING </span><span class="s4">= </span><span class="s5">10</span>
+    <span class="s1">NO_ZONE_KEY_BIT_SET </span><span class="s4">= </span><span class="s5">11</span>
+    <span class="s1">NSEC_MISSING </span><span class="s4">= </span><span class="s5">12</span>
+    <span class="s1">CACHED_ERROR </span><span class="s4">= </span><span class="s5">13</span>
+    <span class="s1">NOT_READY </span><span class="s4">= </span><span class="s5">14</span>
+    <span class="s1">BLOCKED </span><span class="s4">= </span><span class="s5">15</span>
+    <span class="s1">CENSORED </span><span class="s4">= </span><span class="s5">16</span>
+    <span class="s1">FILTERED </span><span class="s4">= </span><span class="s5">17</span>
+    <span class="s1">PROHIBITED </span><span class="s4">= </span><span class="s5">18</span>
+    <span class="s1">STALE_NXDOMAIN_ANSWER </span><span class="s4">= </span><span class="s5">19</span>
+    <span class="s1">NOT_AUTHORITATIVE </span><span class="s4">= </span><span class="s5">20</span>
+    <span class="s1">NOT_SUPPORTED </span><span class="s4">= </span><span class="s5">21</span>
+    <span class="s1">NO_REACHABLE_AUTHORITY </span><span class="s4">= </span><span class="s5">22</span>
+    <span class="s1">NETWORK_ERROR </span><span class="s4">= </span><span class="s5">23</span>
+    <span class="s1">INVALID_DATA </span><span class="s4">= </span><span class="s5">24</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">65535</span>
+
+
+<span class="s3">class </span><span class="s1">EDEOption</span><span class="s4">(</span><span class="s1">Option</span><span class="s4">):  </span><span class="s0"># lgtm[py/missing-equals]</span>
+    <span class="s2">&quot;&quot;&quot;Extended DNS Error (EDE, RFC8914)&quot;&quot;&quot;</span>
+
+    <span class="s1">_preserve_case </span><span class="s4">= {</span><span class="s6">&quot;DNSKEY&quot;</span><span class="s4">, </span><span class="s6">&quot;DS&quot;</span><span class="s4">, </span><span class="s6">&quot;DNSSEC&quot;</span><span class="s4">, </span><span class="s6">&quot;RRSIGs&quot;</span><span class="s4">, </span><span class="s6">&quot;NSEC&quot;</span><span class="s4">, </span><span class="s6">&quot;NXDOMAIN&quot;</span><span class="s4">}</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">code</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">EDECode</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">text</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">str</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;*code*, a ``dns.edns.EDECode`` or ``str``, the info code of the 
+        extended error. 
+ 
+        *text*, a ``str`` or ``None``, specifying additional information about 
+        the error. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">EDE</span><span class="s4">)</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">code </span><span class="s4">= </span><span class="s1">EDECode</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">code</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">text </span><span class="s3">is not None and not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">text</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">&quot;text must be string or None&quot;</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">text </span><span class="s4">= </span><span class="s1">text</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s1">output </span><span class="s4">= </span><span class="s6">f&quot;EDE </span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">code</span><span class="s3">}</span><span class="s6">&quot;</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">code </span><span class="s3">in </span><span class="s1">EDECode</span><span class="s4">:</span>
+            <span class="s1">desc </span><span class="s4">= </span><span class="s1">EDECode</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">code</span><span class="s4">)</span>
+            <span class="s1">desc </span><span class="s4">= </span><span class="s6">&quot; &quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span>
+                <span class="s1">word </span><span class="s3">if </span><span class="s1">word </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_preserve_case </span><span class="s3">else </span><span class="s1">word</span><span class="s4">.</span><span class="s1">title</span><span class="s4">()</span>
+                <span class="s3">for </span><span class="s1">word </span><span class="s3">in </span><span class="s1">desc</span><span class="s4">.</span><span class="s1">split</span><span class="s4">(</span><span class="s6">&quot;_&quot;</span><span class="s4">)</span>
+            <span class="s4">)</span>
+            <span class="s1">output </span><span class="s4">+= </span><span class="s6">f&quot; (</span><span class="s3">{</span><span class="s1">desc</span><span class="s3">}</span><span class="s6">)&quot;</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">text </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">output </span><span class="s4">+= </span><span class="s6">f&quot;: </span><span class="s3">{</span><span class="s1">self</span><span class="s4">.</span><span class="s1">text</span><span class="s3">}</span><span class="s6">&quot;</span>
+        <span class="s3">return </span><span class="s1">output</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s1">value </span><span class="s4">= </span><span class="s1">struct</span><span class="s4">.</span><span class="s1">pack</span><span class="s4">(</span><span class="s6">&quot;!H&quot;</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">code</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">text </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">value </span><span class="s4">+= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">text</span><span class="s4">.</span><span class="s1">encode</span><span class="s4">(</span><span class="s6">&quot;utf8&quot;</span><span class="s4">)</span>
+
+        <span class="s3">if </span><span class="s1">file</span><span class="s4">:</span>
+            <span class="s1">file</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s3">return None</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">value</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">parser</span><span class="s4">: </span><span class="s6">&quot;dns.wire.Parser&quot;</span>
+    <span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+        <span class="s1">code </span><span class="s4">= </span><span class="s1">EDECode</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_uint16</span><span class="s4">())</span>
+        <span class="s1">text </span><span class="s4">= </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_remaining</span><span class="s4">()</span>
+
+        <span class="s3">if </span><span class="s1">text</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">text</span><span class="s4">[-</span><span class="s5">1</span><span class="s4">] == </span><span class="s5">0</span><span class="s4">:  </span><span class="s0"># text MAY be null-terminated</span>
+                <span class="s1">text </span><span class="s4">= </span><span class="s1">text</span><span class="s4">[:-</span><span class="s5">1</span><span class="s4">]</span>
+            <span class="s1">btext </span><span class="s4">= </span><span class="s1">text</span><span class="s4">.</span><span class="s1">decode</span><span class="s4">(</span><span class="s6">&quot;utf8&quot;</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">btext </span><span class="s4">= </span><span class="s3">None</span>
+
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">code</span><span class="s4">, </span><span class="s1">btext</span><span class="s4">)</span>
+
+
+<span class="s3">class </span><span class="s1">NSIDOption</span><span class="s4">(</span><span class="s1">Option</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">nsid</span><span class="s4">: </span><span class="s1">bytes</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">NSID</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">nsid </span><span class="s4">= </span><span class="s1">nsid</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">: </span><span class="s1">Any </span><span class="s4">= </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s3">if </span><span class="s1">file</span><span class="s4">:</span>
+            <span class="s1">file</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">nsid</span><span class="s4">)</span>
+            <span class="s3">return None</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">nsid</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">all</span><span class="s4">(</span><span class="s1">c </span><span class="s4">&gt;= </span><span class="s5">0x20 </span><span class="s3">and </span><span class="s1">c </span><span class="s4">&lt;= </span><span class="s5">0x7E </span><span class="s3">for </span><span class="s1">c </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">nsid</span><span class="s4">):</span>
+            <span class="s0"># All ASCII printable, so it's probably a string.</span>
+            <span class="s1">value </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">nsid</span><span class="s4">.</span><span class="s1">decode</span><span class="s4">()</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">value </span><span class="s4">= </span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">hexlify</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">nsid</span><span class="s4">).</span><span class="s1">decode</span><span class="s4">()</span>
+        <span class="s3">return </span><span class="s6">f&quot;NSID </span><span class="s3">{</span><span class="s1">value</span><span class="s3">}</span><span class="s6">&quot;</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">parser</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span><span class="s4">.</span><span class="s1">Parser</span>
+    <span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_remaining</span><span class="s4">())</span>
+
+
+<span class="s3">class </span><span class="s1">CookieOption</span><span class="s4">(</span><span class="s1">Option</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">client</span><span class="s4">: </span><span class="s1">bytes</span><span class="s4">, </span><span class="s1">server</span><span class="s4">: </span><span class="s1">bytes</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">edns</span><span class="s4">.</span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">COOKIE</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">client </span><span class="s4">= </span><span class="s1">client</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">server </span><span class="s4">= </span><span class="s1">server</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">client</span><span class="s4">) != </span><span class="s5">8</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">&quot;client cookie must be 8 bytes&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">server</span><span class="s4">) != </span><span class="s5">0 </span><span class="s3">and </span><span class="s4">(</span><span class="s1">len</span><span class="s4">(</span><span class="s1">server</span><span class="s4">) &lt; </span><span class="s5">8 </span><span class="s3">or </span><span class="s1">len</span><span class="s4">(</span><span class="s1">server</span><span class="s4">) &gt; </span><span class="s5">32</span><span class="s4">):</span>
+            <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s6">&quot;server cookie must be empty or between 8 and 32 bytes&quot;</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">: </span><span class="s1">Any </span><span class="s4">= </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s3">if </span><span class="s1">file</span><span class="s4">:</span>
+            <span class="s1">file</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">client</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">server</span><span class="s4">) &gt; </span><span class="s5">0</span><span class="s4">:</span>
+                <span class="s1">file</span><span class="s4">.</span><span class="s1">write</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">server</span><span class="s4">)</span>
+            <span class="s3">return None</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">client </span><span class="s4">+ </span><span class="s1">self</span><span class="s4">.</span><span class="s1">server</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s1">client </span><span class="s4">= </span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">hexlify</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">client</span><span class="s4">).</span><span class="s1">decode</span><span class="s4">()</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">server</span><span class="s4">) &gt; </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s1">server </span><span class="s4">= </span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">hexlify</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">server</span><span class="s4">).</span><span class="s1">decode</span><span class="s4">()</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">server </span><span class="s4">= </span><span class="s6">&quot;&quot;</span>
+        <span class="s3">return </span><span class="s6">f&quot;COOKIE </span><span class="s3">{</span><span class="s1">client</span><span class="s3">}{</span><span class="s1">server</span><span class="s3">}</span><span class="s6">&quot;</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">parser</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span><span class="s4">.</span><span class="s1">Parser</span>
+    <span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_bytes</span><span class="s4">(</span><span class="s5">8</span><span class="s4">), </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_remaining</span><span class="s4">())</span>
+
+
+<span class="s3">class </span><span class="s1">ReportChannelOption</span><span class="s4">(</span><span class="s1">Option</span><span class="s4">):</span>
+    <span class="s0"># RFC 9567</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">agent_domain</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">):</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">REPORTCHANNEL</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">agent_domain </span><span class="s4">= </span><span class="s1">agent_domain</span>
+
+    <span class="s3">def </span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">file</span><span class="s4">: </span><span class="s1">Any </span><span class="s4">= </span><span class="s3">None</span><span class="s4">) </span><span class="s1">-&gt; Optional</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">]:</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">agent_domain</span><span class="s4">.</span><span class="s1">to_wire</span><span class="s4">(</span><span class="s1">file</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s6">&quot;REPORTCHANNEL &quot; </span><span class="s4">+ </span><span class="s1">self</span><span class="s4">.</span><span class="s1">agent_domain</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">()</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">from_wire_parser</span><span class="s4">(</span>
+        <span class="s1">cls</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">parser</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span><span class="s4">.</span><span class="s1">Parser</span>
+    <span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">cls</span><span class="s4">(</span><span class="s1">parser</span><span class="s4">.</span><span class="s1">get_name</span><span class="s4">())</span>
+
+
+<span class="s1">_type_to_class</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">Any</span><span class="s4">] = {</span>
+    <span class="s1">OptionType</span><span class="s4">.</span><span class="s1">ECS</span><span class="s4">: </span><span class="s1">ECSOption</span><span class="s4">,</span>
+    <span class="s1">OptionType</span><span class="s4">.</span><span class="s1">EDE</span><span class="s4">: </span><span class="s1">EDEOption</span><span class="s4">,</span>
+    <span class="s1">OptionType</span><span class="s4">.</span><span class="s1">NSID</span><span class="s4">: </span><span class="s1">NSIDOption</span><span class="s4">,</span>
+    <span class="s1">OptionType</span><span class="s4">.</span><span class="s1">COOKIE</span><span class="s4">: </span><span class="s1">CookieOption</span><span class="s4">,</span>
+    <span class="s1">OptionType</span><span class="s4">.</span><span class="s1">REPORTCHANNEL</span><span class="s4">: </span><span class="s1">ReportChannelOption</span><span class="s4">,</span>
+<span class="s4">}</span>
+
+
+<span class="s3">def </span><span class="s1">get_option_class</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">: </span><span class="s1">OptionType</span><span class="s4">) </span><span class="s1">-&gt; Any</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Return the class for the specified option type. 
+ 
+    The GenericOption class is used if a more specific class is not 
+    known. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">cls </span><span class="s4">= </span><span class="s1">_type_to_class</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">cls </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s1">cls </span><span class="s4">= </span><span class="s1">GenericOption</span>
+    <span class="s3">return </span><span class="s1">cls</span>
+
+
+<span class="s3">def </span><span class="s1">option_from_wire_parser</span><span class="s4">(</span>
+    <span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">parser</span><span class="s4">: </span><span class="s6">&quot;dns.wire.Parser&quot;</span>
+<span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Build an EDNS option object from wire format. 
+ 
+    *otype*, an ``int``, is the option type. 
+ 
+    *parser*, a ``dns.wire.Parser``, the parser, which should be 
+    restricted to the option length. 
+ 
+    Returns an instance of a subclass of ``dns.edns.Option``. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">otype </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">)</span>
+    <span class="s1">cls </span><span class="s4">= </span><span class="s1">get_option_class</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">)</span>
+    <span class="s3">return </span><span class="s1">cls</span><span class="s4">.</span><span class="s1">from_wire_parser</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">option_from_wire</span><span class="s4">(</span>
+    <span class="s1">otype</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">OptionType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">], </span><span class="s1">wire</span><span class="s4">: </span><span class="s1">bytes</span><span class="s4">, </span><span class="s1">current</span><span class="s4">: </span><span class="s1">int</span><span class="s4">, </span><span class="s1">olen</span><span class="s4">: </span><span class="s1">int</span>
+<span class="s4">) </span><span class="s1">-&gt; Option</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Build an EDNS option object from wire format. 
+ 
+    *otype*, an ``int``, is the option type. 
+ 
+    *wire*, a ``bytes``, is the wire-format message. 
+ 
+    *current*, an ``int``, is the offset in *wire* of the beginning 
+    of the rdata. 
+ 
+    *olen*, an ``int``, is the length of the wire-format option data 
+ 
+    Returns an instance of a subclass of ``dns.edns.Option``. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">parser </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">wire</span><span class="s4">.</span><span class="s1">Parser</span><span class="s4">(</span><span class="s1">wire</span><span class="s4">, </span><span class="s1">current</span><span class="s4">)</span>
+    <span class="s3">with </span><span class="s1">parser</span><span class="s4">.</span><span class="s1">restrict_to</span><span class="s4">(</span><span class="s1">olen</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">option_from_wire_parser</span><span class="s4">(</span><span class="s1">otype</span><span class="s4">, </span><span class="s1">parser</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">register_type</span><span class="s4">(</span><span class="s1">implementation</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">, </span><span class="s1">otype</span><span class="s4">: </span><span class="s1">OptionType</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Register the implementation of an option type. 
+ 
+    *implementation*, a ``class``, is a subclass of ``dns.edns.Option``. 
+ 
+    *otype*, an ``int``, is the option type. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">_type_to_class</span><span class="s4">[</span><span class="s1">otype</span><span class="s4">] = </span><span class="s1">implementation</span>
+
+
+<span class="s0">### BEGIN generated OptionType constants</span>
+
+<span class="s1">NSID </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">NSID</span>
+<span class="s1">DAU </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">DAU</span>
+<span class="s1">DHU </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">DHU</span>
+<span class="s1">N3U </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">N3U</span>
+<span class="s1">ECS </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">ECS</span>
+<span class="s1">EXPIRE </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">EXPIRE</span>
+<span class="s1">COOKIE </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">COOKIE</span>
+<span class="s1">KEEPALIVE </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">KEEPALIVE</span>
+<span class="s1">PADDING </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">PADDING</span>
+<span class="s1">CHAIN </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">CHAIN</span>
+<span class="s1">EDE </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">EDE</span>
+<span class="s1">REPORTCHANNEL </span><span class="s4">= </span><span class="s1">OptionType</span><span class="s4">.</span><span class="s1">REPORTCHANNEL</span>
+
+<span class="s0">### END generated OptionType constants</span>
+</pre>
+</body>
+</html>

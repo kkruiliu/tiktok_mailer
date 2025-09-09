@@ -1,0 +1,123 @@
+<html>
+<head>
+<title>WKS.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #6aab73;}
+.s5 { color: #2aacb8;}
+.s6 { color: #5f826b; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+WKS.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2007, 2009-2011 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">import </span><span class="s1">socket</span>
+<span class="s2">import </span><span class="s1">struct</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">ipv4</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span>
+
+<span class="s2">try</span><span class="s3">:</span>
+    <span class="s1">_proto_tcp </span><span class="s3">= </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">getprotobyname</span><span class="s3">(</span><span class="s4">&quot;tcp&quot;</span><span class="s3">)</span>
+    <span class="s1">_proto_udp </span><span class="s3">= </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">getprotobyname</span><span class="s3">(</span><span class="s4">&quot;udp&quot;</span><span class="s3">)</span>
+<span class="s2">except </span><span class="s1">OSError</span><span class="s3">:</span>
+    <span class="s0"># Fall back to defaults in case /etc/protocols is unavailable.</span>
+    <span class="s1">_proto_tcp </span><span class="s3">= </span><span class="s5">6</span>
+    <span class="s1">_proto_udp </span><span class="s3">= </span><span class="s5">17</span>
+
+
+<span class="s3">@</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">class </span><span class="s1">WKS</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">Rdata</span><span class="s3">):</span>
+    <span class="s6">&quot;&quot;&quot;WKS record&quot;&quot;&quot;</span>
+
+    <span class="s0"># see: RFC 1035</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= [</span><span class="s4">&quot;address&quot;</span><span class="s3">, </span><span class="s4">&quot;protocol&quot;</span><span class="s3">, </span><span class="s4">&quot;bitmap&quot;</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">protocol</span><span class="s3">, </span><span class="s1">bitmap</span><span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">address </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_ipv4_address</span><span class="s3">(</span><span class="s1">address</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">protocol </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_uint8</span><span class="s3">(</span><span class="s1">protocol</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">bitmap </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_bytes</span><span class="s3">(</span><span class="s1">bitmap</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">):</span>
+        <span class="s1">bits </span><span class="s3">= []</span>
+        <span class="s2">for </span><span class="s1">i</span><span class="s3">, </span><span class="s1">byte </span><span class="s2">in </span><span class="s1">enumerate</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">bitmap</span><span class="s3">):</span>
+            <span class="s2">for </span><span class="s1">j </span><span class="s2">in </span><span class="s1">range</span><span class="s3">(</span><span class="s5">0</span><span class="s3">, </span><span class="s5">8</span><span class="s3">):</span>
+                <span class="s2">if </span><span class="s1">byte </span><span class="s3">&amp; (</span><span class="s5">0x80 </span><span class="s3">&gt;&gt; </span><span class="s1">j</span><span class="s3">):</span>
+                    <span class="s1">bits</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s1">str</span><span class="s3">(</span><span class="s1">i </span><span class="s3">* </span><span class="s5">8 </span><span class="s3">+ </span><span class="s1">j</span><span class="s3">))</span>
+        <span class="s1">text </span><span class="s3">= </span><span class="s4">&quot; &quot;</span><span class="s3">.</span><span class="s1">join</span><span class="s3">(</span><span class="s1">bits</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s4">&quot;%s %d %s&quot; </span><span class="s3">% (</span><span class="s1">self</span><span class="s3">.</span><span class="s1">address</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">protocol</span><span class="s3">, </span><span class="s1">text</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_text</span><span class="s3">(</span>
+        <span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">tok</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, </span><span class="s1">relativize_to</span><span class="s3">=</span><span class="s2">None</span>
+    <span class="s3">):</span>
+        <span class="s1">address </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s1">protocol </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">protocol</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+            <span class="s1">protocol </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">protocol</span><span class="s3">)</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">protocol </span><span class="s3">= </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">getprotobyname</span><span class="s3">(</span><span class="s1">protocol</span><span class="s3">)</span>
+        <span class="s1">bitmap </span><span class="s3">= </span><span class="s1">bytearray</span><span class="s3">()</span>
+        <span class="s2">for </span><span class="s1">token </span><span class="s2">in </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_remaining</span><span class="s3">():</span>
+            <span class="s1">value </span><span class="s3">= </span><span class="s1">token</span><span class="s3">.</span><span class="s1">unescape</span><span class="s3">().</span><span class="s1">value</span>
+            <span class="s2">if </span><span class="s1">value</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+                <span class="s1">serv </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">value</span><span class="s3">)</span>
+            <span class="s2">else</span><span class="s3">:</span>
+                <span class="s2">if </span><span class="s1">protocol </span><span class="s3">!= </span><span class="s1">_proto_udp </span><span class="s2">and </span><span class="s1">protocol </span><span class="s3">!= </span><span class="s1">_proto_tcp</span><span class="s3">:</span>
+                    <span class="s2">raise </span><span class="s1">NotImplementedError</span><span class="s3">(</span><span class="s4">&quot;protocol must be TCP or UDP&quot;</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">protocol </span><span class="s3">== </span><span class="s1">_proto_udp</span><span class="s3">:</span>
+                    <span class="s1">protocol_text </span><span class="s3">= </span><span class="s4">&quot;udp&quot;</span>
+                <span class="s2">else</span><span class="s3">:</span>
+                    <span class="s1">protocol_text </span><span class="s3">= </span><span class="s4">&quot;tcp&quot;</span>
+                <span class="s1">serv </span><span class="s3">= </span><span class="s1">socket</span><span class="s3">.</span><span class="s1">getservbyname</span><span class="s3">(</span><span class="s1">value</span><span class="s3">, </span><span class="s1">protocol_text</span><span class="s3">)</span>
+            <span class="s1">i </span><span class="s3">= </span><span class="s1">serv </span><span class="s3">// </span><span class="s5">8</span>
+            <span class="s1">l </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">bitmap</span><span class="s3">)</span>
+            <span class="s2">if </span><span class="s1">l </span><span class="s3">&lt; </span><span class="s1">i </span><span class="s3">+ </span><span class="s5">1</span><span class="s3">:</span>
+                <span class="s2">for </span><span class="s1">_ </span><span class="s2">in </span><span class="s1">range</span><span class="s3">(</span><span class="s1">l</span><span class="s3">, </span><span class="s1">i </span><span class="s3">+ </span><span class="s5">1</span><span class="s3">):</span>
+                    <span class="s1">bitmap</span><span class="s3">.</span><span class="s1">append</span><span class="s3">(</span><span class="s5">0</span><span class="s3">)</span>
+            <span class="s1">bitmap</span><span class="s3">[</span><span class="s1">i</span><span class="s3">] = </span><span class="s1">bitmap</span><span class="s3">[</span><span class="s1">i</span><span class="s3">] | (</span><span class="s5">0x80 </span><span class="s3">&gt;&gt; (</span><span class="s1">serv </span><span class="s3">% </span><span class="s5">8</span><span class="s3">))</span>
+        <span class="s1">bitmap </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">_truncate_bitmap</span><span class="s3">(</span><span class="s1">bitmap</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">protocol</span><span class="s3">, </span><span class="s1">bitmap</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_to_wire</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">file</span><span class="s3">, </span><span class="s1">compress</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">canonicalize</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">ipv4</span><span class="s3">.</span><span class="s1">inet_aton</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">address</span><span class="s3">))</span>
+        <span class="s1">protocol </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span><span class="s4">&quot;!B&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">protocol</span><span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">protocol</span><span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">bitmap</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_wire_parser</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">parser</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s1">address </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_bytes</span><span class="s3">(</span><span class="s5">4</span><span class="s3">)</span>
+        <span class="s1">protocol </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_uint8</span><span class="s3">()</span>
+        <span class="s1">bitmap </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_remaining</span><span class="s3">()</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">address</span><span class="s3">, </span><span class="s1">protocol</span><span class="s3">, </span><span class="s1">bitmap</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

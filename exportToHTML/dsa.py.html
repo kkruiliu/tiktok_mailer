@@ -1,0 +1,129 @@
+<html>
+<head>
+<title>dsa.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #2aacb8;}
+.s4 { color: #6aab73;}
+.s5 { color: #5f826b; font-style: italic;}
+.s6 { color: #7a7e85;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+dsa.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">struct</span>
+
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">backends </span><span class="s0">import </span><span class="s1">default_backend</span>
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives </span><span class="s0">import </span><span class="s1">hashes</span>
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives</span><span class="s2">.</span><span class="s1">asymmetric </span><span class="s0">import </span><span class="s1">dsa</span><span class="s2">, </span><span class="s1">utils</span>
+
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssecalgs</span><span class="s2">.</span><span class="s1">cryptography </span><span class="s0">import </span><span class="s1">CryptographyPrivateKey</span><span class="s2">, </span><span class="s1">CryptographyPublicKey</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssectypes </span><span class="s0">import </span><span class="s1">Algorithm</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">rdtypes</span><span class="s2">.</span><span class="s1">ANY</span><span class="s2">.</span><span class="s1">DNSKEY </span><span class="s0">import </span><span class="s1">DNSKEY</span>
+
+
+<span class="s0">class </span><span class="s1">PublicDSA</span><span class="s2">(</span><span class="s1">CryptographyPublicKey</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">dsa</span><span class="s2">.</span><span class="s1">DSAPublicKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">dsa</span><span class="s2">.</span><span class="s1">DSAPublicKey</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">DSA</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">SHA1</span><span class="s2">()</span>
+
+    <span class="s0">def </span><span class="s1">verify</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">signature</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">, </span><span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s0">None</span><span class="s2">:</span>
+        <span class="s1">sig_r </span><span class="s2">= </span><span class="s1">signature</span><span class="s2">[</span><span class="s3">1</span><span class="s2">:</span><span class="s3">21</span><span class="s2">]</span>
+        <span class="s1">sig_s </span><span class="s2">= </span><span class="s1">signature</span><span class="s2">[</span><span class="s3">21</span><span class="s2">:]</span>
+        <span class="s1">sig </span><span class="s2">= </span><span class="s1">utils</span><span class="s2">.</span><span class="s1">encode_dss_signature</span><span class="s2">(</span>
+            <span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">sig_r</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">), </span><span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">sig_s</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s2">)</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">sig</span><span class="s2">, </span><span class="s1">data</span><span class="s2">, </span><span class="s1">self</span><span class="s2">.</span><span class="s1">chosen_hash</span><span class="s2">)</span>
+
+    <span class="s0">def </span><span class="s1">encode_key_bytes</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s5">&quot;&quot;&quot;Encode a public key per RFC 2536, section 2.&quot;&quot;&quot;</span>
+        <span class="s1">pn </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">public_numbers</span><span class="s2">()</span>
+        <span class="s1">dsa_t </span><span class="s2">= (</span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">key_size </span><span class="s2">// </span><span class="s3">8 </span><span class="s2">- </span><span class="s3">64</span><span class="s2">) // </span><span class="s3">8</span>
+        <span class="s0">if </span><span class="s1">dsa_t </span><span class="s2">&gt; </span><span class="s3">8</span><span class="s2">:</span>
+            <span class="s0">raise </span><span class="s1">ValueError</span><span class="s2">(</span><span class="s4">&quot;unsupported DSA key size&quot;</span><span class="s2">)</span>
+        <span class="s1">octets </span><span class="s2">= </span><span class="s3">64 </span><span class="s2">+ </span><span class="s1">dsa_t </span><span class="s2">* </span><span class="s3">8</span>
+        <span class="s1">res </span><span class="s2">= </span><span class="s1">struct</span><span class="s2">.</span><span class="s1">pack</span><span class="s2">(</span><span class="s4">&quot;!B&quot;</span><span class="s2">, </span><span class="s1">dsa_t</span><span class="s2">)</span>
+        <span class="s1">res </span><span class="s2">+= </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">parameter_numbers</span><span class="s2">.</span><span class="s1">q</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s3">20</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s1">res </span><span class="s2">+= </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">parameter_numbers</span><span class="s2">.</span><span class="s1">p</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">octets</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s1">res </span><span class="s2">+= </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">parameter_numbers</span><span class="s2">.</span><span class="s1">g</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">octets</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s1">res </span><span class="s2">+= </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">y</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">octets</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">res</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">from_dnskey</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">, </span><span class="s1">key</span><span class="s2">: </span><span class="s1">DNSKEY</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s4">&quot;PublicDSA&quot;</span><span class="s2">:</span>
+        <span class="s1">cls</span><span class="s2">.</span><span class="s1">_ensure_algorithm_key_combination</span><span class="s2">(</span><span class="s1">key</span><span class="s2">)</span>
+        <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">key</span><span class="s2">.</span><span class="s1">key</span>
+        <span class="s2">(</span><span class="s1">t</span><span class="s2">,) = </span><span class="s1">struct</span><span class="s2">.</span><span class="s1">unpack</span><span class="s2">(</span><span class="s4">&quot;!B&quot;</span><span class="s2">, </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s3">0</span><span class="s2">:</span><span class="s3">1</span><span class="s2">])</span>
+        <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s3">1</span><span class="s2">:]</span>
+        <span class="s1">octets </span><span class="s2">= </span><span class="s3">64 </span><span class="s2">+ </span><span class="s1">t </span><span class="s2">* </span><span class="s3">8</span>
+        <span class="s1">dsa_q </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s3">0</span><span class="s2">:</span><span class="s3">20</span><span class="s2">]</span>
+        <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s3">20</span><span class="s2">:]</span>
+        <span class="s1">dsa_p </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s3">0</span><span class="s2">:</span><span class="s1">octets</span><span class="s2">]</span>
+        <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s1">octets</span><span class="s2">:]</span>
+        <span class="s1">dsa_g </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s3">0</span><span class="s2">:</span><span class="s1">octets</span><span class="s2">]</span>
+        <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s1">octets</span><span class="s2">:]</span>
+        <span class="s1">dsa_y </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s3">0</span><span class="s2">:</span><span class="s1">octets</span><span class="s2">]</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span>
+            <span class="s1">key</span><span class="s2">=</span><span class="s1">dsa</span><span class="s2">.</span><span class="s1">DSAPublicNumbers</span><span class="s2">(  </span><span class="s6"># type: ignore</span>
+                <span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">dsa_y</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">),</span>
+                <span class="s1">dsa</span><span class="s2">.</span><span class="s1">DSAParameterNumbers</span><span class="s2">(</span>
+                    <span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">dsa_p</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">),</span>
+                    <span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">dsa_q</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">),</span>
+                    <span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">dsa_g</span><span class="s2">, </span><span class="s4">&quot;big&quot;</span><span class="s2">),</span>
+                <span class="s2">),</span>
+            <span class="s2">).</span><span class="s1">public_key</span><span class="s2">(</span><span class="s1">default_backend</span><span class="s2">()),</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateDSA</span><span class="s2">(</span><span class="s1">CryptographyPrivateKey</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">dsa</span><span class="s2">.</span><span class="s1">DSAPrivateKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">dsa</span><span class="s2">.</span><span class="s1">DSAPrivateKey</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicDSA</span>
+
+    <span class="s0">def </span><span class="s1">sign</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">,</span>
+        <span class="s1">verify</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">deterministic</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">True</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s5">&quot;&quot;&quot;Sign using a private key per RFC 2536, section 3.&quot;&quot;&quot;</span>
+        <span class="s1">public_dsa_key </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">public_key</span><span class="s2">()</span>
+        <span class="s0">if </span><span class="s1">public_dsa_key</span><span class="s2">.</span><span class="s1">key_size </span><span class="s2">&gt; </span><span class="s3">1024</span><span class="s2">:</span>
+            <span class="s0">raise </span><span class="s1">ValueError</span><span class="s2">(</span><span class="s4">&quot;DSA key size overflow&quot;</span><span class="s2">)</span>
+        <span class="s1">der_signature </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">sign</span><span class="s2">(</span><span class="s1">data</span><span class="s2">, </span><span class="s1">self</span><span class="s2">.</span><span class="s1">public_cls</span><span class="s2">.</span><span class="s1">chosen_hash</span><span class="s2">)</span>
+        <span class="s1">dsa_r</span><span class="s2">, </span><span class="s1">dsa_s </span><span class="s2">= </span><span class="s1">utils</span><span class="s2">.</span><span class="s1">decode_dss_signature</span><span class="s2">(</span><span class="s1">der_signature</span><span class="s2">)</span>
+        <span class="s1">dsa_t </span><span class="s2">= (</span><span class="s1">public_dsa_key</span><span class="s2">.</span><span class="s1">key_size </span><span class="s2">// </span><span class="s3">8 </span><span class="s2">- </span><span class="s3">64</span><span class="s2">) // </span><span class="s3">8</span>
+        <span class="s1">octets </span><span class="s2">= </span><span class="s3">20</span>
+        <span class="s1">signature </span><span class="s2">= (</span>
+            <span class="s1">struct</span><span class="s2">.</span><span class="s1">pack</span><span class="s2">(</span><span class="s4">&quot;!B&quot;</span><span class="s2">, </span><span class="s1">dsa_t</span><span class="s2">)</span>
+            <span class="s2">+ </span><span class="s1">int</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">dsa_r</span><span class="s2">, </span><span class="s1">length</span><span class="s2">=</span><span class="s1">octets</span><span class="s2">, </span><span class="s1">byteorder</span><span class="s2">=</span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+            <span class="s2">+ </span><span class="s1">int</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">dsa_s</span><span class="s2">, </span><span class="s1">length</span><span class="s2">=</span><span class="s1">octets</span><span class="s2">, </span><span class="s1">byteorder</span><span class="s2">=</span><span class="s4">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s2">)</span>
+        <span class="s0">if </span><span class="s1">verify</span><span class="s2">:</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">public_key</span><span class="s2">().</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">signature</span><span class="s2">, </span><span class="s1">data</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">signature</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">generate</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">, </span><span class="s1">key_size</span><span class="s2">: </span><span class="s1">int</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s4">&quot;PrivateDSA&quot;</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span>
+            <span class="s1">key</span><span class="s2">=</span><span class="s1">dsa</span><span class="s2">.</span><span class="s1">generate_private_key</span><span class="s2">(</span><span class="s1">key_size</span><span class="s2">=</span><span class="s1">key_size</span><span class="s2">),</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">PublicDSANSEC3SHA1</span><span class="s2">(</span><span class="s1">PublicDSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">DSANSEC3SHA1</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateDSANSEC3SHA1</span><span class="s2">(</span><span class="s1">PrivateDSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicDSANSEC3SHA1</span>
+</pre>
+</body>
+</html>

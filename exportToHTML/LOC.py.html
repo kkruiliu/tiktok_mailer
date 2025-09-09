@@ -1,0 +1,376 @@
+<html>
+<head>
+<title>LOC.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #2aacb8;}
+.s5 { color: #6aab73;}
+.s6 { color: #5f826b; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+LOC.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2007, 2009-2011 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">import </span><span class="s1">struct</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span>
+
+<span class="s1">_pows </span><span class="s3">= </span><span class="s1">tuple</span><span class="s3">(</span><span class="s4">10</span><span class="s3">**</span><span class="s1">i </span><span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">range</span><span class="s3">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">11</span><span class="s3">))</span>
+
+<span class="s0"># default values are in centimeters</span>
+<span class="s1">_default_size </span><span class="s3">= </span><span class="s4">100.0</span>
+<span class="s1">_default_hprec </span><span class="s3">= </span><span class="s4">1000000.0</span>
+<span class="s1">_default_vprec </span><span class="s3">= </span><span class="s4">1000.0</span>
+
+<span class="s0"># for use by from_wire()</span>
+<span class="s1">_MAX_LATITUDE </span><span class="s3">= </span><span class="s4">0x80000000 </span><span class="s3">+ </span><span class="s4">90 </span><span class="s3">* </span><span class="s4">3600000</span>
+<span class="s1">_MIN_LATITUDE </span><span class="s3">= </span><span class="s4">0x80000000 </span><span class="s3">- </span><span class="s4">90 </span><span class="s3">* </span><span class="s4">3600000</span>
+<span class="s1">_MAX_LONGITUDE </span><span class="s3">= </span><span class="s4">0x80000000 </span><span class="s3">+ </span><span class="s4">180 </span><span class="s3">* </span><span class="s4">3600000</span>
+<span class="s1">_MIN_LONGITUDE </span><span class="s3">= </span><span class="s4">0x80000000 </span><span class="s3">- </span><span class="s4">180 </span><span class="s3">* </span><span class="s4">3600000</span>
+
+
+<span class="s2">def </span><span class="s1">_exponent_of</span><span class="s3">(</span><span class="s1">what</span><span class="s3">, </span><span class="s1">desc</span><span class="s3">):</span>
+    <span class="s2">if </span><span class="s1">what </span><span class="s3">== </span><span class="s4">0</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s4">0</span>
+    <span class="s1">exp </span><span class="s3">= </span><span class="s2">None</span>
+    <span class="s2">for </span><span class="s1">i</span><span class="s3">, </span><span class="s1">pow </span><span class="s2">in </span><span class="s1">enumerate</span><span class="s3">(</span><span class="s1">_pows</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">what </span><span class="s3">&lt; </span><span class="s1">pow</span><span class="s3">:</span>
+            <span class="s1">exp </span><span class="s3">= </span><span class="s1">i </span><span class="s3">- </span><span class="s4">1</span>
+            <span class="s2">break</span>
+    <span class="s2">if </span><span class="s1">exp </span><span class="s2">is None or </span><span class="s1">exp </span><span class="s3">&lt; </span><span class="s4">0</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">SyntaxError</span><span class="s3">(</span><span class="s5">f&quot;</span><span class="s2">{</span><span class="s1">desc</span><span class="s2">} </span><span class="s5">value out of bounds&quot;</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">exp</span>
+
+
+<span class="s2">def </span><span class="s1">_float_to_tuple</span><span class="s3">(</span><span class="s1">what</span><span class="s3">):</span>
+    <span class="s2">if </span><span class="s1">what </span><span class="s3">&lt; </span><span class="s4">0</span><span class="s3">:</span>
+        <span class="s1">sign </span><span class="s3">= -</span><span class="s4">1</span>
+        <span class="s1">what </span><span class="s3">*= -</span><span class="s4">1</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s1">sign </span><span class="s3">= </span><span class="s4">1</span>
+    <span class="s1">what </span><span class="s3">= </span><span class="s1">round</span><span class="s3">(</span><span class="s1">what </span><span class="s3">* </span><span class="s4">3600000</span><span class="s3">)</span>
+    <span class="s1">degrees </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">what </span><span class="s3">// </span><span class="s4">3600000</span><span class="s3">)</span>
+    <span class="s1">what </span><span class="s3">-= </span><span class="s1">degrees </span><span class="s3">* </span><span class="s4">3600000</span>
+    <span class="s1">minutes </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">what </span><span class="s3">// </span><span class="s4">60000</span><span class="s3">)</span>
+    <span class="s1">what </span><span class="s3">-= </span><span class="s1">minutes </span><span class="s3">* </span><span class="s4">60000</span>
+    <span class="s1">seconds </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">what </span><span class="s3">// </span><span class="s4">1000</span><span class="s3">)</span>
+    <span class="s1">what </span><span class="s3">-= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">seconds </span><span class="s3">* </span><span class="s4">1000</span><span class="s3">)</span>
+    <span class="s1">what </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">what</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s3">(</span><span class="s1">degrees</span><span class="s3">, </span><span class="s1">minutes</span><span class="s3">, </span><span class="s1">seconds</span><span class="s3">, </span><span class="s1">what</span><span class="s3">, </span><span class="s1">sign</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">_tuple_to_float</span><span class="s3">(</span><span class="s1">what</span><span class="s3">):</span>
+    <span class="s1">value </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">what</span><span class="s3">[</span><span class="s4">0</span><span class="s3">])</span>
+    <span class="s1">value </span><span class="s3">+= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">what</span><span class="s3">[</span><span class="s4">1</span><span class="s3">]) / </span><span class="s4">60.0</span>
+    <span class="s1">value </span><span class="s3">+= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">what</span><span class="s3">[</span><span class="s4">2</span><span class="s3">]) / </span><span class="s4">3600.0</span>
+    <span class="s1">value </span><span class="s3">+= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">what</span><span class="s3">[</span><span class="s4">3</span><span class="s3">]) / </span><span class="s4">3600000.0</span>
+    <span class="s2">return </span><span class="s1">float</span><span class="s3">(</span><span class="s1">what</span><span class="s3">[</span><span class="s4">4</span><span class="s3">]) * </span><span class="s1">value</span>
+
+
+<span class="s2">def </span><span class="s1">_encode_size</span><span class="s3">(</span><span class="s1">what</span><span class="s3">, </span><span class="s1">desc</span><span class="s3">):</span>
+    <span class="s1">what </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">what</span><span class="s3">)</span>
+    <span class="s1">exponent </span><span class="s3">= </span><span class="s1">_exponent_of</span><span class="s3">(</span><span class="s1">what</span><span class="s3">, </span><span class="s1">desc</span><span class="s3">) &amp; </span><span class="s4">0xF</span>
+    <span class="s1">base </span><span class="s3">= </span><span class="s1">what </span><span class="s3">// </span><span class="s1">pow</span><span class="s3">(</span><span class="s4">10</span><span class="s3">, </span><span class="s1">exponent</span><span class="s3">) &amp; </span><span class="s4">0xF</span>
+    <span class="s2">return </span><span class="s1">base </span><span class="s3">* </span><span class="s4">16 </span><span class="s3">+ </span><span class="s1">exponent</span>
+
+
+<span class="s2">def </span><span class="s1">_decode_size</span><span class="s3">(</span><span class="s1">what</span><span class="s3">, </span><span class="s1">desc</span><span class="s3">):</span>
+    <span class="s1">exponent </span><span class="s3">= </span><span class="s1">what </span><span class="s3">&amp; </span><span class="s4">0x0F</span>
+    <span class="s2">if </span><span class="s1">exponent </span><span class="s3">&gt; </span><span class="s4">9</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">f&quot;bad </span><span class="s2">{</span><span class="s1">desc</span><span class="s2">} </span><span class="s5">exponent&quot;</span><span class="s3">)</span>
+    <span class="s1">base </span><span class="s3">= (</span><span class="s1">what </span><span class="s3">&amp; </span><span class="s4">0xF0</span><span class="s3">) &gt;&gt; </span><span class="s4">4</span>
+    <span class="s2">if </span><span class="s1">base </span><span class="s3">&gt; </span><span class="s4">9</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">f&quot;bad </span><span class="s2">{</span><span class="s1">desc</span><span class="s2">} </span><span class="s5">base&quot;</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">base </span><span class="s3">* </span><span class="s1">pow</span><span class="s3">(</span><span class="s4">10</span><span class="s3">, </span><span class="s1">exponent</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">_check_coordinate_list</span><span class="s3">(</span><span class="s1">value</span><span class="s3">, </span><span class="s1">low</span><span class="s3">, </span><span class="s1">high</span><span class="s3">):</span>
+    <span class="s2">if </span><span class="s1">value</span><span class="s3">[</span><span class="s4">0</span><span class="s3">] &lt; </span><span class="s1">low </span><span class="s2">or </span><span class="s1">value</span><span class="s3">[</span><span class="s4">0</span><span class="s3">] &gt; </span><span class="s1">high</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">f&quot;not in range [</span><span class="s2">{</span><span class="s1">low</span><span class="s2">}</span><span class="s5">, </span><span class="s2">{</span><span class="s1">high</span><span class="s2">}</span><span class="s5">]&quot;</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">value</span><span class="s3">[</span><span class="s4">1</span><span class="s3">] &lt; </span><span class="s4">0 </span><span class="s2">or </span><span class="s1">value</span><span class="s3">[</span><span class="s4">1</span><span class="s3">] &gt; </span><span class="s4">59</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;bad minutes value&quot;</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">value</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] &lt; </span><span class="s4">0 </span><span class="s2">or </span><span class="s1">value</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] &gt; </span><span class="s4">59</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;bad seconds value&quot;</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">value</span><span class="s3">[</span><span class="s4">3</span><span class="s3">] &lt; </span><span class="s4">0 </span><span class="s2">or </span><span class="s1">value</span><span class="s3">[</span><span class="s4">3</span><span class="s3">] &gt; </span><span class="s4">999</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;bad milliseconds value&quot;</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">value</span><span class="s3">[</span><span class="s4">4</span><span class="s3">] != </span><span class="s4">1 </span><span class="s2">and </span><span class="s1">value</span><span class="s3">[</span><span class="s4">4</span><span class="s3">] != -</span><span class="s4">1</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;bad hemisphere value&quot;</span><span class="s3">)</span>
+
+
+<span class="s3">@</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">class </span><span class="s1">LOC</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">Rdata</span><span class="s3">):</span>
+    <span class="s6">&quot;&quot;&quot;LOC record&quot;&quot;&quot;</span>
+
+    <span class="s0"># see: RFC 1876</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= [</span>
+        <span class="s5">&quot;latitude&quot;</span><span class="s3">,</span>
+        <span class="s5">&quot;longitude&quot;</span><span class="s3">,</span>
+        <span class="s5">&quot;altitude&quot;</span><span class="s3">,</span>
+        <span class="s5">&quot;size&quot;</span><span class="s3">,</span>
+        <span class="s5">&quot;horizontal_precision&quot;</span><span class="s3">,</span>
+        <span class="s5">&quot;vertical_precision&quot;</span><span class="s3">,</span>
+    <span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span>
+        <span class="s1">self</span><span class="s3">,</span>
+        <span class="s1">rdclass</span><span class="s3">,</span>
+        <span class="s1">rdtype</span><span class="s3">,</span>
+        <span class="s1">latitude</span><span class="s3">,</span>
+        <span class="s1">longitude</span><span class="s3">,</span>
+        <span class="s1">altitude</span><span class="s3">,</span>
+        <span class="s1">size</span><span class="s3">=</span><span class="s1">_default_size</span><span class="s3">,</span>
+        <span class="s1">hprec</span><span class="s3">=</span><span class="s1">_default_hprec</span><span class="s3">,</span>
+        <span class="s1">vprec</span><span class="s3">=</span><span class="s1">_default_vprec</span><span class="s3">,</span>
+    <span class="s3">):</span>
+        <span class="s6">&quot;&quot;&quot;Initialize a LOC record instance. 
+ 
+        The parameters I{latitude} and I{longitude} may be either a 4-tuple 
+        of integers specifying (degrees, minutes, seconds, milliseconds), 
+        or they may be floating point values specifying the number of 
+        degrees. The other parameters are floats. Size, horizontal precision, 
+        and vertical precision are specified in centimeters.&quot;&quot;&quot;</span>
+
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">latitude</span><span class="s3">, </span><span class="s1">int</span><span class="s3">):</span>
+            <span class="s1">latitude </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">latitude</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">latitude</span><span class="s3">, </span><span class="s1">float</span><span class="s3">):</span>
+            <span class="s1">latitude </span><span class="s3">= </span><span class="s1">_float_to_tuple</span><span class="s3">(</span><span class="s1">latitude</span><span class="s3">)</span>
+        <span class="s1">_check_coordinate_list</span><span class="s3">(</span><span class="s1">latitude</span><span class="s3">, -</span><span class="s4">90</span><span class="s3">, </span><span class="s4">90</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">latitude </span><span class="s3">= </span><span class="s1">tuple</span><span class="s3">(</span><span class="s1">latitude</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">longitude</span><span class="s3">, </span><span class="s1">int</span><span class="s3">):</span>
+            <span class="s1">longitude </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">longitude</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">isinstance</span><span class="s3">(</span><span class="s1">longitude</span><span class="s3">, </span><span class="s1">float</span><span class="s3">):</span>
+            <span class="s1">longitude </span><span class="s3">= </span><span class="s1">_float_to_tuple</span><span class="s3">(</span><span class="s1">longitude</span><span class="s3">)</span>
+        <span class="s1">_check_coordinate_list</span><span class="s3">(</span><span class="s1">longitude</span><span class="s3">, -</span><span class="s4">180</span><span class="s3">, </span><span class="s4">180</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">longitude </span><span class="s3">= </span><span class="s1">tuple</span><span class="s3">(</span><span class="s1">longitude</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">altitude </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">altitude</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">size </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">size</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">horizontal_precision </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">hprec</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">vertical_precision </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">vprec</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">):</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">4</span><span class="s3">] &gt; </span><span class="s4">0</span><span class="s3">:</span>
+            <span class="s1">lat_hemisphere </span><span class="s3">= </span><span class="s5">&quot;N&quot;</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">lat_hemisphere </span><span class="s3">= </span><span class="s5">&quot;S&quot;</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">4</span><span class="s3">] &gt; </span><span class="s4">0</span><span class="s3">:</span>
+            <span class="s1">long_hemisphere </span><span class="s3">= </span><span class="s5">&quot;E&quot;</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">long_hemisphere </span><span class="s3">= </span><span class="s5">&quot;W&quot;</span>
+        <span class="s1">text </span><span class="s3">= </span><span class="s5">&quot;%d %d %d.%03d %s %d %d %d.%03d %s %0.2fm&quot; </span><span class="s3">% (</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">0</span><span class="s3">],</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">1</span><span class="s3">],</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">],</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">3</span><span class="s3">],</span>
+            <span class="s1">lat_hemisphere</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">0</span><span class="s3">],</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">1</span><span class="s3">],</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">],</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">3</span><span class="s3">],</span>
+            <span class="s1">long_hemisphere</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">altitude </span><span class="s3">/ </span><span class="s4">100.0</span><span class="s3">,</span>
+        <span class="s3">)</span>
+
+        <span class="s0"># do not print default values</span>
+        <span class="s2">if </span><span class="s3">(</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">size </span><span class="s3">!= </span><span class="s1">_default_size</span>
+            <span class="s2">or </span><span class="s1">self</span><span class="s3">.</span><span class="s1">horizontal_precision </span><span class="s3">!= </span><span class="s1">_default_hprec</span>
+            <span class="s2">or </span><span class="s1">self</span><span class="s3">.</span><span class="s1">vertical_precision </span><span class="s3">!= </span><span class="s1">_default_vprec</span>
+        <span class="s3">):</span>
+            <span class="s1">text </span><span class="s3">+= (</span>
+                <span class="s5">f&quot; </span><span class="s2">{</span><span class="s1">self</span><span class="s3">.</span><span class="s1">size </span><span class="s3">/ </span><span class="s4">100.0</span><span class="s2">:</span><span class="s5">0.2f</span><span class="s2">}</span><span class="s5">m </span><span class="s2">{</span><span class="s1">self</span><span class="s3">.</span><span class="s1">horizontal_precision </span><span class="s3">/ </span><span class="s4">100.0</span><span class="s2">:</span><span class="s5">0.2f</span><span class="s2">}</span><span class="s5">m&quot;</span>
+                <span class="s5">f&quot; </span><span class="s2">{</span><span class="s1">self</span><span class="s3">.</span><span class="s1">vertical_precision </span><span class="s3">/ </span><span class="s4">100.0</span><span class="s2">:</span><span class="s5">0.2f</span><span class="s2">}</span><span class="s5">m&quot;</span>
+            <span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">text</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_text</span><span class="s3">(</span>
+        <span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">tok</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, </span><span class="s1">relativize_to</span><span class="s3">=</span><span class="s2">None</span>
+    <span class="s3">):</span>
+        <span class="s1">latitude </span><span class="s3">= [</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">1</span><span class="s3">]</span>
+        <span class="s1">longitude </span><span class="s3">= [</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">1</span><span class="s3">]</span>
+        <span class="s1">size </span><span class="s3">= </span><span class="s1">_default_size</span>
+        <span class="s1">hprec </span><span class="s3">= </span><span class="s1">_default_hprec</span>
+        <span class="s1">vprec </span><span class="s3">= </span><span class="s1">_default_vprec</span>
+
+        <span class="s1">latitude</span><span class="s3">[</span><span class="s4">0</span><span class="s3">] = </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_int</span><span class="s3">()</span>
+        <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">t</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+            <span class="s1">latitude</span><span class="s3">[</span><span class="s4">1</span><span class="s3">] = </span><span class="s1">int</span><span class="s3">(</span><span class="s1">t</span><span class="s3">)</span>
+            <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+            <span class="s2">if </span><span class="s5">&quot;.&quot; </span><span class="s2">in </span><span class="s1">t</span><span class="s3">:</span>
+                <span class="s3">(</span><span class="s1">seconds</span><span class="s3">, </span><span class="s1">milliseconds</span><span class="s3">) = </span><span class="s1">t</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;.&quot;</span><span class="s3">)</span>
+                <span class="s2">if not </span><span class="s1">seconds</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+                    <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">SyntaxError</span><span class="s3">(</span><span class="s5">&quot;bad latitude seconds value&quot;</span><span class="s3">)</span>
+                <span class="s1">latitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] = </span><span class="s1">int</span><span class="s3">(</span><span class="s1">seconds</span><span class="s3">)</span>
+                <span class="s1">l </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">milliseconds</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">l </span><span class="s3">== </span><span class="s4">0 </span><span class="s2">or </span><span class="s1">l </span><span class="s3">&gt; </span><span class="s4">3 </span><span class="s2">or not </span><span class="s1">milliseconds</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+                    <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">SyntaxError</span><span class="s3">(</span><span class="s5">&quot;bad latitude milliseconds value&quot;</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">l </span><span class="s3">== </span><span class="s4">1</span><span class="s3">:</span>
+                    <span class="s1">m </span><span class="s3">= </span><span class="s4">100</span>
+                <span class="s2">elif </span><span class="s1">l </span><span class="s3">== </span><span class="s4">2</span><span class="s3">:</span>
+                    <span class="s1">m </span><span class="s3">= </span><span class="s4">10</span>
+                <span class="s2">else</span><span class="s3">:</span>
+                    <span class="s1">m </span><span class="s3">= </span><span class="s4">1</span>
+                <span class="s1">latitude</span><span class="s3">[</span><span class="s4">3</span><span class="s3">] = </span><span class="s1">m </span><span class="s3">* </span><span class="s1">int</span><span class="s3">(</span><span class="s1">milliseconds</span><span class="s3">)</span>
+                <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+            <span class="s2">elif </span><span class="s1">t</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+                <span class="s1">latitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] = </span><span class="s1">int</span><span class="s3">(</span><span class="s1">t</span><span class="s3">)</span>
+                <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">t </span><span class="s3">== </span><span class="s5">&quot;S&quot;</span><span class="s3">:</span>
+            <span class="s1">latitude</span><span class="s3">[</span><span class="s4">4</span><span class="s3">] = -</span><span class="s4">1</span>
+        <span class="s2">elif </span><span class="s1">t </span><span class="s3">!= </span><span class="s5">&quot;N&quot;</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">SyntaxError</span><span class="s3">(</span><span class="s5">&quot;bad latitude hemisphere value&quot;</span><span class="s3">)</span>
+
+        <span class="s1">longitude</span><span class="s3">[</span><span class="s4">0</span><span class="s3">] = </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_int</span><span class="s3">()</span>
+        <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">t</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+            <span class="s1">longitude</span><span class="s3">[</span><span class="s4">1</span><span class="s3">] = </span><span class="s1">int</span><span class="s3">(</span><span class="s1">t</span><span class="s3">)</span>
+            <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+            <span class="s2">if </span><span class="s5">&quot;.&quot; </span><span class="s2">in </span><span class="s1">t</span><span class="s3">:</span>
+                <span class="s3">(</span><span class="s1">seconds</span><span class="s3">, </span><span class="s1">milliseconds</span><span class="s3">) = </span><span class="s1">t</span><span class="s3">.</span><span class="s1">split</span><span class="s3">(</span><span class="s5">&quot;.&quot;</span><span class="s3">)</span>
+                <span class="s2">if not </span><span class="s1">seconds</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+                    <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">SyntaxError</span><span class="s3">(</span><span class="s5">&quot;bad longitude seconds value&quot;</span><span class="s3">)</span>
+                <span class="s1">longitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] = </span><span class="s1">int</span><span class="s3">(</span><span class="s1">seconds</span><span class="s3">)</span>
+                <span class="s1">l </span><span class="s3">= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">milliseconds</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">l </span><span class="s3">== </span><span class="s4">0 </span><span class="s2">or </span><span class="s1">l </span><span class="s3">&gt; </span><span class="s4">3 </span><span class="s2">or not </span><span class="s1">milliseconds</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+                    <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">SyntaxError</span><span class="s3">(</span><span class="s5">&quot;bad longitude milliseconds value&quot;</span><span class="s3">)</span>
+                <span class="s2">if </span><span class="s1">l </span><span class="s3">== </span><span class="s4">1</span><span class="s3">:</span>
+                    <span class="s1">m </span><span class="s3">= </span><span class="s4">100</span>
+                <span class="s2">elif </span><span class="s1">l </span><span class="s3">== </span><span class="s4">2</span><span class="s3">:</span>
+                    <span class="s1">m </span><span class="s3">= </span><span class="s4">10</span>
+                <span class="s2">else</span><span class="s3">:</span>
+                    <span class="s1">m </span><span class="s3">= </span><span class="s4">1</span>
+                <span class="s1">longitude</span><span class="s3">[</span><span class="s4">3</span><span class="s3">] = </span><span class="s1">m </span><span class="s3">* </span><span class="s1">int</span><span class="s3">(</span><span class="s1">milliseconds</span><span class="s3">)</span>
+                <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+            <span class="s2">elif </span><span class="s1">t</span><span class="s3">.</span><span class="s1">isdigit</span><span class="s3">():</span>
+                <span class="s1">longitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] = </span><span class="s1">int</span><span class="s3">(</span><span class="s1">t</span><span class="s3">)</span>
+                <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">t </span><span class="s3">== </span><span class="s5">&quot;W&quot;</span><span class="s3">:</span>
+            <span class="s1">longitude</span><span class="s3">[</span><span class="s4">4</span><span class="s3">] = -</span><span class="s4">1</span>
+        <span class="s2">elif </span><span class="s1">t </span><span class="s3">!= </span><span class="s5">&quot;E&quot;</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">SyntaxError</span><span class="s3">(</span><span class="s5">&quot;bad longitude hemisphere value&quot;</span><span class="s3">)</span>
+
+        <span class="s1">t </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_string</span><span class="s3">()</span>
+        <span class="s2">if </span><span class="s1">t</span><span class="s3">[-</span><span class="s4">1</span><span class="s3">] == </span><span class="s5">&quot;m&quot;</span><span class="s3">:</span>
+            <span class="s1">t </span><span class="s3">= </span><span class="s1">t</span><span class="s3">[</span><span class="s4">0</span><span class="s3">:-</span><span class="s4">1</span><span class="s3">]</span>
+        <span class="s1">altitude </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">t</span><span class="s3">) * </span><span class="s4">100.0  </span><span class="s0"># m -&gt; cm</span>
+
+        <span class="s1">tokens </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_remaining</span><span class="s3">(</span><span class="s1">max_tokens</span><span class="s3">=</span><span class="s4">3</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">len</span><span class="s3">(</span><span class="s1">tokens</span><span class="s3">) &gt;= </span><span class="s4">1</span><span class="s3">:</span>
+            <span class="s1">value </span><span class="s3">= </span><span class="s1">tokens</span><span class="s3">[</span><span class="s4">0</span><span class="s3">].</span><span class="s1">unescape</span><span class="s3">().</span><span class="s1">value</span>
+            <span class="s2">if </span><span class="s1">value</span><span class="s3">[-</span><span class="s4">1</span><span class="s3">] == </span><span class="s5">&quot;m&quot;</span><span class="s3">:</span>
+                <span class="s1">value </span><span class="s3">= </span><span class="s1">value</span><span class="s3">[</span><span class="s4">0</span><span class="s3">:-</span><span class="s4">1</span><span class="s3">]</span>
+            <span class="s1">size </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">value</span><span class="s3">) * </span><span class="s4">100.0  </span><span class="s0"># m -&gt; cm</span>
+            <span class="s2">if </span><span class="s1">len</span><span class="s3">(</span><span class="s1">tokens</span><span class="s3">) &gt;= </span><span class="s4">2</span><span class="s3">:</span>
+                <span class="s1">value </span><span class="s3">= </span><span class="s1">tokens</span><span class="s3">[</span><span class="s4">1</span><span class="s3">].</span><span class="s1">unescape</span><span class="s3">().</span><span class="s1">value</span>
+                <span class="s2">if </span><span class="s1">value</span><span class="s3">[-</span><span class="s4">1</span><span class="s3">] == </span><span class="s5">&quot;m&quot;</span><span class="s3">:</span>
+                    <span class="s1">value </span><span class="s3">= </span><span class="s1">value</span><span class="s3">[</span><span class="s4">0</span><span class="s3">:-</span><span class="s4">1</span><span class="s3">]</span>
+                <span class="s1">hprec </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">value</span><span class="s3">) * </span><span class="s4">100.0  </span><span class="s0"># m -&gt; cm</span>
+                <span class="s2">if </span><span class="s1">len</span><span class="s3">(</span><span class="s1">tokens</span><span class="s3">) &gt;= </span><span class="s4">3</span><span class="s3">:</span>
+                    <span class="s1">value </span><span class="s3">= </span><span class="s1">tokens</span><span class="s3">[</span><span class="s4">2</span><span class="s3">].</span><span class="s1">unescape</span><span class="s3">().</span><span class="s1">value</span>
+                    <span class="s2">if </span><span class="s1">value</span><span class="s3">[-</span><span class="s4">1</span><span class="s3">] == </span><span class="s5">&quot;m&quot;</span><span class="s3">:</span>
+                        <span class="s1">value </span><span class="s3">= </span><span class="s1">value</span><span class="s3">[</span><span class="s4">0</span><span class="s3">:-</span><span class="s4">1</span><span class="s3">]</span>
+                    <span class="s1">vprec </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">value</span><span class="s3">) * </span><span class="s4">100.0  </span><span class="s0"># m -&gt; cm</span>
+
+        <span class="s0"># Try encoding these now so we raise if they are bad</span>
+        <span class="s1">_encode_size</span><span class="s3">(</span><span class="s1">size</span><span class="s3">, </span><span class="s5">&quot;size&quot;</span><span class="s3">)</span>
+        <span class="s1">_encode_size</span><span class="s3">(</span><span class="s1">hprec</span><span class="s3">, </span><span class="s5">&quot;horizontal precision&quot;</span><span class="s3">)</span>
+        <span class="s1">_encode_size</span><span class="s3">(</span><span class="s1">vprec</span><span class="s3">, </span><span class="s5">&quot;vertical precision&quot;</span><span class="s3">)</span>
+
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">latitude</span><span class="s3">, </span><span class="s1">longitude</span><span class="s3">, </span><span class="s1">altitude</span><span class="s3">, </span><span class="s1">size</span><span class="s3">, </span><span class="s1">hprec</span><span class="s3">, </span><span class="s1">vprec</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_to_wire</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">file</span><span class="s3">, </span><span class="s1">compress</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">canonicalize</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s1">milliseconds </span><span class="s3">= (</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">0</span><span class="s3">] * </span><span class="s4">3600000</span>
+            <span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">1</span><span class="s3">] * </span><span class="s4">60000</span>
+            <span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] * </span><span class="s4">1000</span>
+            <span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">3</span><span class="s3">]</span>
+        <span class="s3">) * </span><span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">[</span><span class="s4">4</span><span class="s3">]</span>
+        <span class="s1">latitude </span><span class="s3">= </span><span class="s4">0x80000000 </span><span class="s3">+ </span><span class="s1">milliseconds</span>
+        <span class="s1">milliseconds </span><span class="s3">= (</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">0</span><span class="s3">] * </span><span class="s4">3600000</span>
+            <span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">1</span><span class="s3">] * </span><span class="s4">60000</span>
+            <span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">2</span><span class="s3">] * </span><span class="s4">1000</span>
+            <span class="s3">+ </span><span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">3</span><span class="s3">]</span>
+        <span class="s3">) * </span><span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">[</span><span class="s4">4</span><span class="s3">]</span>
+        <span class="s1">longitude </span><span class="s3">= </span><span class="s4">0x80000000 </span><span class="s3">+ </span><span class="s1">milliseconds</span>
+        <span class="s1">altitude </span><span class="s3">= </span><span class="s1">int</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">altitude</span><span class="s3">) + </span><span class="s4">10000000</span>
+        <span class="s1">size </span><span class="s3">= </span><span class="s1">_encode_size</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">size</span><span class="s3">, </span><span class="s5">&quot;size&quot;</span><span class="s3">)</span>
+        <span class="s1">hprec </span><span class="s3">= </span><span class="s1">_encode_size</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">horizontal_precision</span><span class="s3">, </span><span class="s5">&quot;horizontal precision&quot;</span><span class="s3">)</span>
+        <span class="s1">vprec </span><span class="s3">= </span><span class="s1">_encode_size</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">vertical_precision</span><span class="s3">, </span><span class="s5">&quot;vertical precision&quot;</span><span class="s3">)</span>
+        <span class="s1">wire </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span>
+            <span class="s5">&quot;!BBBBIII&quot;</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s1">size</span><span class="s3">, </span><span class="s1">hprec</span><span class="s3">, </span><span class="s1">vprec</span><span class="s3">, </span><span class="s1">latitude</span><span class="s3">, </span><span class="s1">longitude</span><span class="s3">, </span><span class="s1">altitude</span>
+        <span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">wire</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_wire_parser</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">parser</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s3">(</span>
+            <span class="s1">version</span><span class="s3">,</span>
+            <span class="s1">size</span><span class="s3">,</span>
+            <span class="s1">hprec</span><span class="s3">,</span>
+            <span class="s1">vprec</span><span class="s3">,</span>
+            <span class="s1">latitude</span><span class="s3">,</span>
+            <span class="s1">longitude</span><span class="s3">,</span>
+            <span class="s1">altitude</span><span class="s3">,</span>
+        <span class="s3">) = </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_struct</span><span class="s3">(</span><span class="s5">&quot;!BBBBIII&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">version </span><span class="s3">!= </span><span class="s4">0</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;LOC version not zero&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">latitude </span><span class="s3">&lt; </span><span class="s1">_MIN_LATITUDE </span><span class="s2">or </span><span class="s1">latitude </span><span class="s3">&gt; </span><span class="s1">_MAX_LATITUDE</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;bad latitude&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">latitude </span><span class="s3">&gt; </span><span class="s4">0x80000000</span><span class="s3">:</span>
+            <span class="s1">latitude </span><span class="s3">= (</span><span class="s1">latitude </span><span class="s3">- </span><span class="s4">0x80000000</span><span class="s3">) / </span><span class="s4">3600000</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">latitude </span><span class="s3">= -</span><span class="s4">1 </span><span class="s3">* (</span><span class="s4">0x80000000 </span><span class="s3">- </span><span class="s1">latitude</span><span class="s3">) / </span><span class="s4">3600000</span>
+        <span class="s2">if </span><span class="s1">longitude </span><span class="s3">&lt; </span><span class="s1">_MIN_LONGITUDE </span><span class="s2">or </span><span class="s1">longitude </span><span class="s3">&gt; </span><span class="s1">_MAX_LONGITUDE</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">FormError</span><span class="s3">(</span><span class="s5">&quot;bad longitude&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">longitude </span><span class="s3">&gt; </span><span class="s4">0x80000000</span><span class="s3">:</span>
+            <span class="s1">longitude </span><span class="s3">= (</span><span class="s1">longitude </span><span class="s3">- </span><span class="s4">0x80000000</span><span class="s3">) / </span><span class="s4">3600000</span>
+        <span class="s2">else</span><span class="s3">:</span>
+            <span class="s1">longitude </span><span class="s3">= -</span><span class="s4">1 </span><span class="s3">* (</span><span class="s4">0x80000000 </span><span class="s3">- </span><span class="s1">longitude</span><span class="s3">) / </span><span class="s4">3600000</span>
+        <span class="s1">altitude </span><span class="s3">= </span><span class="s1">float</span><span class="s3">(</span><span class="s1">altitude</span><span class="s3">) - </span><span class="s4">10000000.0</span>
+        <span class="s1">size </span><span class="s3">= </span><span class="s1">_decode_size</span><span class="s3">(</span><span class="s1">size</span><span class="s3">, </span><span class="s5">&quot;size&quot;</span><span class="s3">)</span>
+        <span class="s1">hprec </span><span class="s3">= </span><span class="s1">_decode_size</span><span class="s3">(</span><span class="s1">hprec</span><span class="s3">, </span><span class="s5">&quot;horizontal precision&quot;</span><span class="s3">)</span>
+        <span class="s1">vprec </span><span class="s3">= </span><span class="s1">_decode_size</span><span class="s3">(</span><span class="s1">vprec</span><span class="s3">, </span><span class="s5">&quot;vertical precision&quot;</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">latitude</span><span class="s3">, </span><span class="s1">longitude</span><span class="s3">, </span><span class="s1">altitude</span><span class="s3">, </span><span class="s1">size</span><span class="s3">, </span><span class="s1">hprec</span><span class="s3">, </span><span class="s1">vprec</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">property</span>
+    <span class="s2">def </span><span class="s1">float_latitude</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s6">&quot;latitude as a floating point value&quot;</span>
+        <span class="s2">return </span><span class="s1">_tuple_to_float</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">latitude</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">property</span>
+    <span class="s2">def </span><span class="s1">float_longitude</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s6">&quot;longitude as a floating point value&quot;</span>
+        <span class="s2">return </span><span class="s1">_tuple_to_float</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">longitude</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

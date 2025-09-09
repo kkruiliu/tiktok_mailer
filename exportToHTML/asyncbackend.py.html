@@ -1,0 +1,123 @@
+<html>
+<head>
+<title>asyncbackend.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #5f826b; font-style: italic;}
+.s5 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+asyncbackend.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">from </span><span class="s1">typing </span><span class="s2">import </span><span class="s1">Dict</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span>
+
+<span class="s0"># pylint: disable=unused-import</span>
+<span class="s2">from </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">_asyncbackend </span><span class="s2">import </span><span class="s3">(  </span><span class="s0"># noqa: F401  lgtm[py/unused-import]</span>
+    <span class="s1">Backend</span><span class="s3">,</span>
+    <span class="s1">DatagramSocket</span><span class="s3">,</span>
+    <span class="s1">Socket</span><span class="s3">,</span>
+    <span class="s1">StreamSocket</span><span class="s3">,</span>
+<span class="s3">)</span>
+
+<span class="s0"># pylint: enable=unused-import</span>
+
+<span class="s1">_default_backend </span><span class="s3">= </span><span class="s2">None</span>
+
+<span class="s1">_backends</span><span class="s3">: </span><span class="s1">Dict</span><span class="s3">[</span><span class="s1">str</span><span class="s3">, </span><span class="s1">Backend</span><span class="s3">] = {}</span>
+
+<span class="s0"># Allow sniffio import to be disabled for testing purposes</span>
+<span class="s1">_no_sniffio </span><span class="s3">= </span><span class="s2">False</span>
+
+
+<span class="s2">class </span><span class="s1">AsyncLibraryNotFoundError</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">exception</span><span class="s3">.</span><span class="s1">DNSException</span><span class="s3">):</span>
+    <span class="s2">pass</span>
+
+
+<span class="s2">def </span><span class="s1">get_backend</span><span class="s3">(</span><span class="s1">name</span><span class="s3">: </span><span class="s1">str</span><span class="s3">) </span><span class="s1">-&gt; Backend</span><span class="s3">:</span>
+    <span class="s4">&quot;&quot;&quot;Get the specified asynchronous backend. 
+ 
+    *name*, a ``str``, the name of the backend.  Currently the &quot;trio&quot; 
+    and &quot;asyncio&quot; backends are available. 
+ 
+    Raises NotImplementedError if an unknown backend name is specified. 
+    &quot;&quot;&quot;</span>
+    <span class="s0"># pylint: disable=import-outside-toplevel,redefined-outer-name</span>
+    <span class="s1">backend </span><span class="s3">= </span><span class="s1">_backends</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">name</span><span class="s3">)</span>
+    <span class="s2">if </span><span class="s1">backend</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">backend</span>
+    <span class="s2">if </span><span class="s1">name </span><span class="s3">== </span><span class="s5">&quot;trio&quot;</span><span class="s3">:</span>
+        <span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">_trio_backend</span>
+
+        <span class="s1">backend </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">_trio_backend</span><span class="s3">.</span><span class="s1">Backend</span><span class="s3">()</span>
+    <span class="s2">elif </span><span class="s1">name </span><span class="s3">== </span><span class="s5">&quot;asyncio&quot;</span><span class="s3">:</span>
+        <span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">_asyncio_backend</span>
+
+        <span class="s1">backend </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">_asyncio_backend</span><span class="s3">.</span><span class="s1">Backend</span><span class="s3">()</span>
+    <span class="s2">else</span><span class="s3">:</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span><span class="s3">(</span><span class="s5">f&quot;unimplemented async backend </span><span class="s2">{</span><span class="s1">name</span><span class="s2">}</span><span class="s5">&quot;</span><span class="s3">)</span>
+    <span class="s1">_backends</span><span class="s3">[</span><span class="s1">name</span><span class="s3">] = </span><span class="s1">backend</span>
+    <span class="s2">return </span><span class="s1">backend</span>
+
+
+<span class="s2">def </span><span class="s1">sniff</span><span class="s3">() </span><span class="s1">-&gt; str</span><span class="s3">:</span>
+    <span class="s4">&quot;&quot;&quot;Attempt to determine the in-use asynchronous I/O library by using 
+    the ``sniffio`` module if it is available. 
+ 
+    Returns the name of the library, or raises AsyncLibraryNotFoundError 
+    if the library cannot be determined. 
+    &quot;&quot;&quot;</span>
+    <span class="s0"># pylint: disable=import-outside-toplevel</span>
+    <span class="s2">try</span><span class="s3">:</span>
+        <span class="s2">if </span><span class="s1">_no_sniffio</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">ImportError</span>
+        <span class="s2">import </span><span class="s1">sniffio</span>
+
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s2">return </span><span class="s1">sniffio</span><span class="s3">.</span><span class="s1">current_async_library</span><span class="s3">()</span>
+        <span class="s2">except </span><span class="s1">sniffio</span><span class="s3">.</span><span class="s1">AsyncLibraryNotFoundError</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">AsyncLibraryNotFoundError</span><span class="s3">(</span><span class="s5">&quot;sniffio cannot determine async library&quot;</span><span class="s3">)</span>
+    <span class="s2">except </span><span class="s1">ImportError</span><span class="s3">:</span>
+        <span class="s2">import </span><span class="s1">asyncio</span>
+
+        <span class="s2">try</span><span class="s3">:</span>
+            <span class="s1">asyncio</span><span class="s3">.</span><span class="s1">get_running_loop</span><span class="s3">()</span>
+            <span class="s2">return </span><span class="s5">&quot;asyncio&quot;</span>
+        <span class="s2">except </span><span class="s1">RuntimeError</span><span class="s3">:</span>
+            <span class="s2">raise </span><span class="s1">AsyncLibraryNotFoundError</span><span class="s3">(</span><span class="s5">&quot;no async library detected&quot;</span><span class="s3">)</span>
+
+
+<span class="s2">def </span><span class="s1">get_default_backend</span><span class="s3">() </span><span class="s1">-&gt; Backend</span><span class="s3">:</span>
+    <span class="s4">&quot;&quot;&quot;Get the default backend, initializing it if necessary.&quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">_default_backend</span><span class="s3">:</span>
+        <span class="s2">return </span><span class="s1">_default_backend</span>
+
+    <span class="s2">return </span><span class="s1">set_default_backend</span><span class="s3">(</span><span class="s1">sniff</span><span class="s3">())</span>
+
+
+<span class="s2">def </span><span class="s1">set_default_backend</span><span class="s3">(</span><span class="s1">name</span><span class="s3">: </span><span class="s1">str</span><span class="s3">) </span><span class="s1">-&gt; Backend</span><span class="s3">:</span>
+    <span class="s4">&quot;&quot;&quot;Set the default backend. 
+ 
+    It's not normally necessary to call this method, as 
+    ``get_default_backend()`` will initialize the backend 
+    appropriately in many cases.  If ``sniffio`` is not installed, or 
+    in testing situations, this function allows the backend to be set 
+    explicitly. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">global </span><span class="s1">_default_backend</span>
+    <span class="s1">_default_backend </span><span class="s3">= </span><span class="s1">get_backend</span><span class="s3">(</span><span class="s1">name</span><span class="s3">)</span>
+    <span class="s2">return </span><span class="s1">_default_backend</span>
+</pre>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<html>
+<head>
+<title>ZONEMD.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #5f826b; font-style: italic;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+ZONEMD.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s2">import </span><span class="s1">binascii</span>
+<span class="s2">import </span><span class="s1">struct</span>
+
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdatatype</span>
+<span class="s2">import </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">zonetypes</span>
+
+
+<span class="s3">@</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">immutable</span><span class="s3">.</span><span class="s1">immutable</span>
+<span class="s2">class </span><span class="s1">ZONEMD</span><span class="s3">(</span><span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">Rdata</span><span class="s3">):</span>
+    <span class="s4">&quot;&quot;&quot;ZONEMD record&quot;&quot;&quot;</span>
+
+    <span class="s0"># See RFC 8976</span>
+
+    <span class="s1">__slots__ </span><span class="s3">= [</span><span class="s5">&quot;serial&quot;</span><span class="s3">, </span><span class="s5">&quot;scheme&quot;</span><span class="s3">, </span><span class="s5">&quot;hash_algorithm&quot;</span><span class="s3">, </span><span class="s5">&quot;digest&quot;</span><span class="s3">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">serial</span><span class="s3">, </span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">hash_algorithm</span><span class="s3">, </span><span class="s1">digest</span><span class="s3">):</span>
+        <span class="s1">super</span><span class="s3">().</span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">serial </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_uint32</span><span class="s3">(</span><span class="s1">serial</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">scheme </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">zonetypes</span><span class="s3">.</span><span class="s1">DigestScheme</span><span class="s3">.</span><span class="s1">make</span><span class="s3">(</span><span class="s1">scheme</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">hash_algorithm </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">zonetypes</span><span class="s3">.</span><span class="s1">DigestHashAlgorithm</span><span class="s3">.</span><span class="s1">make</span><span class="s3">(</span><span class="s1">hash_algorithm</span><span class="s3">)</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">digest </span><span class="s3">= </span><span class="s1">self</span><span class="s3">.</span><span class="s1">_as_bytes</span><span class="s3">(</span><span class="s1">digest</span><span class="s3">)</span>
+
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">scheme </span><span class="s3">== </span><span class="s6">0</span><span class="s3">:  </span><span class="s0"># reserved, RFC 8976 Sec. 5.2</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;scheme 0 is reserved&quot;</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">self</span><span class="s3">.</span><span class="s1">hash_algorithm </span><span class="s3">== </span><span class="s6">0</span><span class="s3">:  </span><span class="s0"># reserved, RFC 8976 Sec. 5.3</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;hash_algorithm 0 is reserved&quot;</span><span class="s3">)</span>
+
+        <span class="s1">hasher </span><span class="s3">= </span><span class="s1">dns</span><span class="s3">.</span><span class="s1">zonetypes</span><span class="s3">.</span><span class="s1">_digest_hashers</span><span class="s3">.</span><span class="s1">get</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">hash_algorithm</span><span class="s3">)</span>
+        <span class="s2">if </span><span class="s1">hasher </span><span class="s2">and </span><span class="s1">hasher</span><span class="s3">().</span><span class="s1">digest_size </span><span class="s3">!= </span><span class="s1">len</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">digest</span><span class="s3">):</span>
+            <span class="s2">raise </span><span class="s1">ValueError</span><span class="s3">(</span><span class="s5">&quot;digest length inconsistent with hash algorithm&quot;</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">to_text</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">):</span>
+        <span class="s1">kw </span><span class="s3">= </span><span class="s1">kw</span><span class="s3">.</span><span class="s1">copy</span><span class="s3">()</span>
+        <span class="s1">chunksize </span><span class="s3">= </span><span class="s1">kw</span><span class="s3">.</span><span class="s1">pop</span><span class="s3">(</span><span class="s5">&quot;chunksize&quot;</span><span class="s3">, </span><span class="s6">128</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s5">&quot;%d %d %d %s&quot; </span><span class="s3">% (</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">serial</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">scheme</span><span class="s3">,</span>
+            <span class="s1">self</span><span class="s3">.</span><span class="s1">hash_algorithm</span><span class="s3">,</span>
+            <span class="s1">dns</span><span class="s3">.</span><span class="s1">rdata</span><span class="s3">.</span><span class="s1">_hexify</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">digest</span><span class="s3">, </span><span class="s1">chunksize</span><span class="s3">=</span><span class="s1">chunksize</span><span class="s3">, **</span><span class="s1">kw</span><span class="s3">),</span>
+        <span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_text</span><span class="s3">(</span>
+        <span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">tok</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">relativize</span><span class="s3">=</span><span class="s2">True</span><span class="s3">, </span><span class="s1">relativize_to</span><span class="s3">=</span><span class="s2">None</span>
+    <span class="s3">):</span>
+        <span class="s1">serial </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint32</span><span class="s3">()</span>
+        <span class="s1">scheme </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint8</span><span class="s3">()</span>
+        <span class="s1">hash_algorithm </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">get_uint8</span><span class="s3">()</span>
+        <span class="s1">digest </span><span class="s3">= </span><span class="s1">tok</span><span class="s3">.</span><span class="s1">concatenate_remaining_identifiers</span><span class="s3">().</span><span class="s1">encode</span><span class="s3">()</span>
+        <span class="s1">digest </span><span class="s3">= </span><span class="s1">binascii</span><span class="s3">.</span><span class="s1">unhexlify</span><span class="s3">(</span><span class="s1">digest</span><span class="s3">)</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">serial</span><span class="s3">, </span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">hash_algorithm</span><span class="s3">, </span><span class="s1">digest</span><span class="s3">)</span>
+
+    <span class="s2">def </span><span class="s1">_to_wire</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">file</span><span class="s3">, </span><span class="s1">compress</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">, </span><span class="s1">canonicalize</span><span class="s3">=</span><span class="s2">False</span><span class="s3">):</span>
+        <span class="s1">header </span><span class="s3">= </span><span class="s1">struct</span><span class="s3">.</span><span class="s1">pack</span><span class="s3">(</span><span class="s5">&quot;!IBB&quot;</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">serial</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">scheme</span><span class="s3">, </span><span class="s1">self</span><span class="s3">.</span><span class="s1">hash_algorithm</span><span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">header</span><span class="s3">)</span>
+        <span class="s1">file</span><span class="s3">.</span><span class="s1">write</span><span class="s3">(</span><span class="s1">self</span><span class="s3">.</span><span class="s1">digest</span><span class="s3">)</span>
+
+    <span class="s3">@</span><span class="s1">classmethod</span>
+    <span class="s2">def </span><span class="s1">from_wire_parser</span><span class="s3">(</span><span class="s1">cls</span><span class="s3">, </span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">parser</span><span class="s3">, </span><span class="s1">origin</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s1">header </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_struct</span><span class="s3">(</span><span class="s5">&quot;!IBB&quot;</span><span class="s3">)</span>
+        <span class="s1">digest </span><span class="s3">= </span><span class="s1">parser</span><span class="s3">.</span><span class="s1">get_remaining</span><span class="s3">()</span>
+        <span class="s2">return </span><span class="s1">cls</span><span class="s3">(</span><span class="s1">rdclass</span><span class="s3">, </span><span class="s1">rdtype</span><span class="s3">, </span><span class="s1">header</span><span class="s3">[</span><span class="s6">0</span><span class="s3">], </span><span class="s1">header</span><span class="s3">[</span><span class="s6">1</span><span class="s3">], </span><span class="s1">header</span><span class="s3">[</span><span class="s6">2</span><span class="s3">], </span><span class="s1">digest</span><span class="s3">)</span>
+</pre>
+</body>
+</html>

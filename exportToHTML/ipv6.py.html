@@ -1,0 +1,241 @@
+<html>
+<head>
+<title>ipv6.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+.s7 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+ipv6.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;IPv6 helper functions.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">binascii</span>
+<span class="s3">import </span><span class="s1">re</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">List</span><span class="s4">, </span><span class="s1">Union</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span>
+
+<span class="s1">_leading_zero </span><span class="s4">= </span><span class="s1">re</span><span class="s4">.</span><span class="s1">compile</span><span class="s4">(</span><span class="s5">r&quot;0+([0-9a-f]+)&quot;</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">address</span><span class="s4">: </span><span class="s1">bytes</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert an IPv6 address in binary form to text form. 
+ 
+    *address*, a ``bytes``, the IPv6 address in binary form. 
+ 
+    Raises ``ValueError`` if the address isn't 16 bytes long. 
+    Returns a ``str``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">address</span><span class="s4">) != </span><span class="s6">16</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">ValueError</span><span class="s4">(</span><span class="s5">&quot;IPv6 addresses are 16 bytes long&quot;</span><span class="s4">)</span>
+    <span class="s1">hex </span><span class="s4">= </span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">hexlify</span><span class="s4">(</span><span class="s1">address</span><span class="s4">)</span>
+    <span class="s1">chunks </span><span class="s4">= []</span>
+    <span class="s1">i </span><span class="s4">= </span><span class="s6">0</span>
+    <span class="s1">l </span><span class="s4">= </span><span class="s1">len</span><span class="s4">(</span><span class="s1">hex</span><span class="s4">)</span>
+    <span class="s3">while </span><span class="s1">i </span><span class="s4">&lt; </span><span class="s1">l</span><span class="s4">:</span>
+        <span class="s1">chunk </span><span class="s4">= </span><span class="s1">hex</span><span class="s4">[</span><span class="s1">i </span><span class="s4">: </span><span class="s1">i </span><span class="s4">+ </span><span class="s6">4</span><span class="s4">].</span><span class="s1">decode</span><span class="s4">()</span>
+        <span class="s0"># strip leading zeros.  we do this with an re instead of</span>
+        <span class="s0"># with lstrip() because lstrip() didn't support chars until</span>
+        <span class="s0"># python 2.2.2</span>
+        <span class="s1">m </span><span class="s4">= </span><span class="s1">_leading_zero</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">chunk</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">m </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">chunk </span><span class="s4">= </span><span class="s1">m</span><span class="s4">.</span><span class="s1">group</span><span class="s4">(</span><span class="s6">1</span><span class="s4">)</span>
+        <span class="s1">chunks</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">chunk</span><span class="s4">)</span>
+        <span class="s1">i </span><span class="s4">+= </span><span class="s6">4</span>
+    <span class="s0">#</span>
+    <span class="s0"># Compress the longest subsequence of 0-value chunks to ::</span>
+    <span class="s0">#</span>
+    <span class="s1">best_start </span><span class="s4">= </span><span class="s6">0</span>
+    <span class="s1">best_len </span><span class="s4">= </span><span class="s6">0</span>
+    <span class="s1">start </span><span class="s4">= -</span><span class="s6">1</span>
+    <span class="s1">last_was_zero </span><span class="s4">= </span><span class="s3">False</span>
+    <span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">range</span><span class="s4">(</span><span class="s6">8</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">chunks</span><span class="s4">[</span><span class="s1">i</span><span class="s4">] != </span><span class="s5">&quot;0&quot;</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">last_was_zero</span><span class="s4">:</span>
+                <span class="s1">end </span><span class="s4">= </span><span class="s1">i</span>
+                <span class="s1">current_len </span><span class="s4">= </span><span class="s1">end </span><span class="s4">- </span><span class="s1">start</span>
+                <span class="s3">if </span><span class="s1">current_len </span><span class="s4">&gt; </span><span class="s1">best_len</span><span class="s4">:</span>
+                    <span class="s1">best_start </span><span class="s4">= </span><span class="s1">start</span>
+                    <span class="s1">best_len </span><span class="s4">= </span><span class="s1">current_len</span>
+                <span class="s1">last_was_zero </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s3">elif not </span><span class="s1">last_was_zero</span><span class="s4">:</span>
+            <span class="s1">start </span><span class="s4">= </span><span class="s1">i</span>
+            <span class="s1">last_was_zero </span><span class="s4">= </span><span class="s3">True</span>
+    <span class="s3">if </span><span class="s1">last_was_zero</span><span class="s4">:</span>
+        <span class="s1">end </span><span class="s4">= </span><span class="s6">8</span>
+        <span class="s1">current_len </span><span class="s4">= </span><span class="s1">end </span><span class="s4">- </span><span class="s1">start</span>
+        <span class="s3">if </span><span class="s1">current_len </span><span class="s4">&gt; </span><span class="s1">best_len</span><span class="s4">:</span>
+            <span class="s1">best_start </span><span class="s4">= </span><span class="s1">start</span>
+            <span class="s1">best_len </span><span class="s4">= </span><span class="s1">current_len</span>
+    <span class="s3">if </span><span class="s1">best_len </span><span class="s4">&gt; </span><span class="s6">1</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">best_start </span><span class="s4">== </span><span class="s6">0 </span><span class="s3">and </span><span class="s4">(</span><span class="s1">best_len </span><span class="s4">== </span><span class="s6">6 </span><span class="s3">or </span><span class="s1">best_len </span><span class="s4">== </span><span class="s6">5 </span><span class="s3">and </span><span class="s1">chunks</span><span class="s4">[</span><span class="s6">5</span><span class="s4">] == </span><span class="s5">&quot;ffff&quot;</span><span class="s4">):</span>
+            <span class="s0"># We have an embedded IPv4 address</span>
+            <span class="s3">if </span><span class="s1">best_len </span><span class="s4">== </span><span class="s6">6</span><span class="s4">:</span>
+                <span class="s1">prefix </span><span class="s4">= </span><span class="s5">&quot;::&quot;</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">prefix </span><span class="s4">= </span><span class="s5">&quot;::ffff:&quot;</span>
+            <span class="s1">thex </span><span class="s4">= </span><span class="s1">prefix </span><span class="s4">+ </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">address</span><span class="s4">[</span><span class="s6">12</span><span class="s4">:])</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">thex </span><span class="s4">= (</span>
+                <span class="s5">&quot;:&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">chunks</span><span class="s4">[:</span><span class="s1">best_start</span><span class="s4">])</span>
+                <span class="s4">+ </span><span class="s5">&quot;::&quot;</span>
+                <span class="s4">+ </span><span class="s5">&quot;:&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">chunks</span><span class="s4">[</span><span class="s1">best_start </span><span class="s4">+ </span><span class="s1">best_len </span><span class="s4">:])</span>
+            <span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">thex </span><span class="s4">= </span><span class="s5">&quot;:&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">chunks</span><span class="s4">)</span>
+    <span class="s3">return </span><span class="s1">thex</span>
+
+
+<span class="s1">_v4_ending </span><span class="s4">= </span><span class="s1">re</span><span class="s4">.</span><span class="s1">compile</span><span class="s4">(</span><span class="s7">rb&quot;(.*):(\d+\.\d+\.\d+\.\d+)$&quot;</span><span class="s4">)</span>
+<span class="s1">_colon_colon_start </span><span class="s4">= </span><span class="s1">re</span><span class="s4">.</span><span class="s1">compile</span><span class="s4">(</span><span class="s7">rb&quot;::.*&quot;</span><span class="s4">)</span>
+<span class="s1">_colon_colon_end </span><span class="s4">= </span><span class="s1">re</span><span class="s4">.</span><span class="s1">compile</span><span class="s4">(</span><span class="s7">rb&quot;.*::$&quot;</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">inet_aton</span><span class="s4">(</span><span class="s1">text</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">], </span><span class="s1">ignore_scope</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">) </span><span class="s1">-&gt; bytes</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert an IPv6 address in text form to binary form. 
+ 
+    *text*, a ``str`` or ``bytes``, the IPv6 address in textual form. 
+ 
+    *ignore_scope*, a ``bool``.  If ``True``, a scope will be ignored. 
+    If ``False``, the default, it is an error for a scope to be present. 
+ 
+    Returns a ``bytes``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s0">#</span>
+    <span class="s0"># Our aim here is not something fast; we just want something that works.</span>
+    <span class="s0">#</span>
+    <span class="s3">if not </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">text</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">):</span>
+        <span class="s1">btext </span><span class="s4">= </span><span class="s1">text</span><span class="s4">.</span><span class="s1">encode</span><span class="s4">()</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">btext </span><span class="s4">= </span><span class="s1">text</span>
+
+    <span class="s3">if </span><span class="s1">ignore_scope</span><span class="s4">:</span>
+        <span class="s1">parts </span><span class="s4">= </span><span class="s1">btext</span><span class="s4">.</span><span class="s1">split</span><span class="s4">(</span><span class="s7">b&quot;%&quot;</span><span class="s4">)</span>
+        <span class="s1">l </span><span class="s4">= </span><span class="s1">len</span><span class="s4">(</span><span class="s1">parts</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">l </span><span class="s4">== </span><span class="s6">2</span><span class="s4">:</span>
+            <span class="s1">btext </span><span class="s4">= </span><span class="s1">parts</span><span class="s4">[</span><span class="s6">0</span><span class="s4">]</span>
+        <span class="s3">elif </span><span class="s1">l </span><span class="s4">&gt; </span><span class="s6">2</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+
+    <span class="s3">if </span><span class="s1">btext </span><span class="s4">== </span><span class="s7">b&quot;&quot;</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+    <span class="s3">elif </span><span class="s1">btext</span><span class="s4">.</span><span class="s1">endswith</span><span class="s4">(</span><span class="s7">b&quot;:&quot;</span><span class="s4">) </span><span class="s3">and not </span><span class="s1">btext</span><span class="s4">.</span><span class="s1">endswith</span><span class="s4">(</span><span class="s7">b&quot;::&quot;</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+    <span class="s3">elif </span><span class="s1">btext</span><span class="s4">.</span><span class="s1">startswith</span><span class="s4">(</span><span class="s7">b&quot;:&quot;</span><span class="s4">) </span><span class="s3">and not </span><span class="s1">btext</span><span class="s4">.</span><span class="s1">startswith</span><span class="s4">(</span><span class="s7">b&quot;::&quot;</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+    <span class="s3">elif </span><span class="s1">btext </span><span class="s4">== </span><span class="s7">b&quot;::&quot;</span><span class="s4">:</span>
+        <span class="s1">btext </span><span class="s4">= </span><span class="s7">b&quot;0::&quot;</span>
+    <span class="s0">#</span>
+    <span class="s0"># Get rid of the icky dot-quad syntax if we have it.</span>
+    <span class="s0">#</span>
+    <span class="s1">m </span><span class="s4">= </span><span class="s1">_v4_ending</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">btext</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">m </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s1">b </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv4</span><span class="s4">.</span><span class="s1">inet_aton</span><span class="s4">(</span><span class="s1">m</span><span class="s4">.</span><span class="s1">group</span><span class="s4">(</span><span class="s6">2</span><span class="s4">))</span>
+        <span class="s1">btext </span><span class="s4">= (</span>
+            <span class="s5">f&quot;</span><span class="s3">{</span><span class="s1">m</span><span class="s4">.</span><span class="s1">group</span><span class="s4">(</span><span class="s6">1</span><span class="s4">).</span><span class="s1">decode</span><span class="s4">()</span><span class="s3">}</span><span class="s5">:</span><span class="s3">{</span><span class="s1">b</span><span class="s4">[</span><span class="s6">0</span><span class="s4">]</span><span class="s3">:</span><span class="s5">02x</span><span class="s3">}{</span><span class="s1">b</span><span class="s4">[</span><span class="s6">1</span><span class="s4">]</span><span class="s3">:</span><span class="s5">02x</span><span class="s3">}</span><span class="s5">:</span><span class="s3">{</span><span class="s1">b</span><span class="s4">[</span><span class="s6">2</span><span class="s4">]</span><span class="s3">:</span><span class="s5">02x</span><span class="s3">}{</span><span class="s1">b</span><span class="s4">[</span><span class="s6">3</span><span class="s4">]</span><span class="s3">:</span><span class="s5">02x</span><span class="s3">}</span><span class="s5">&quot;</span>
+        <span class="s4">).</span><span class="s1">encode</span><span class="s4">()</span>
+    <span class="s0">#</span>
+    <span class="s0"># Try to turn '::&lt;whatever&gt;' into ':&lt;whatever&gt;'; if no match try to</span>
+    <span class="s0"># turn '&lt;whatever&gt;::' into '&lt;whatever&gt;:'</span>
+    <span class="s0">#</span>
+    <span class="s1">m </span><span class="s4">= </span><span class="s1">_colon_colon_start</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">btext</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">m </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s1">btext </span><span class="s4">= </span><span class="s1">btext</span><span class="s4">[</span><span class="s6">1</span><span class="s4">:]</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">m </span><span class="s4">= </span><span class="s1">_colon_colon_end</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">btext</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">m </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">btext </span><span class="s4">= </span><span class="s1">btext</span><span class="s4">[:-</span><span class="s6">1</span><span class="s4">]</span>
+    <span class="s0">#</span>
+    <span class="s0"># Now canonicalize into 8 chunks of 4 hex digits each</span>
+    <span class="s0">#</span>
+    <span class="s1">chunks </span><span class="s4">= </span><span class="s1">btext</span><span class="s4">.</span><span class="s1">split</span><span class="s4">(</span><span class="s7">b&quot;:&quot;</span><span class="s4">)</span>
+    <span class="s1">l </span><span class="s4">= </span><span class="s1">len</span><span class="s4">(</span><span class="s1">chunks</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">l </span><span class="s4">&gt; </span><span class="s6">8</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+    <span class="s1">seen_empty </span><span class="s4">= </span><span class="s3">False</span>
+    <span class="s1">canonical</span><span class="s4">: </span><span class="s1">List</span><span class="s4">[</span><span class="s1">bytes</span><span class="s4">] = []</span>
+    <span class="s3">for </span><span class="s1">c </span><span class="s3">in </span><span class="s1">chunks</span><span class="s4">:</span>
+        <span class="s3">if </span><span class="s1">c </span><span class="s4">== </span><span class="s7">b&quot;&quot;</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">seen_empty</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+            <span class="s1">seen_empty </span><span class="s4">= </span><span class="s3">True</span>
+            <span class="s3">for </span><span class="s1">_ </span><span class="s3">in </span><span class="s1">range</span><span class="s4">(</span><span class="s6">0</span><span class="s4">, </span><span class="s6">8 </span><span class="s4">- </span><span class="s1">l </span><span class="s4">+ </span><span class="s6">1</span><span class="s4">):</span>
+                <span class="s1">canonical</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s7">b&quot;0000&quot;</span><span class="s4">)</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">lc </span><span class="s4">= </span><span class="s1">len</span><span class="s4">(</span><span class="s1">c</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">lc </span><span class="s4">&gt; </span><span class="s6">4</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+            <span class="s3">if </span><span class="s1">lc </span><span class="s4">!= </span><span class="s6">4</span><span class="s4">:</span>
+                <span class="s1">c </span><span class="s4">= (</span><span class="s7">b&quot;0&quot; </span><span class="s4">* (</span><span class="s6">4 </span><span class="s4">- </span><span class="s1">lc</span><span class="s4">)) + </span><span class="s1">c</span>
+            <span class="s1">canonical</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">c</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">l </span><span class="s4">&lt; </span><span class="s6">8 </span><span class="s3">and not </span><span class="s1">seen_empty</span><span class="s4">:</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+    <span class="s1">btext </span><span class="s4">= </span><span class="s7">b&quot;&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">canonical</span><span class="s4">)</span>
+
+    <span class="s0">#</span>
+    <span class="s0"># Finally we can go to binary.</span>
+    <span class="s0">#</span>
+    <span class="s3">try</span><span class="s4">:</span>
+        <span class="s3">return </span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">unhexlify</span><span class="s4">(</span><span class="s1">btext</span><span class="s4">)</span>
+    <span class="s3">except </span><span class="s4">(</span><span class="s1">binascii</span><span class="s4">.</span><span class="s1">Error</span><span class="s4">, </span><span class="s1">TypeError</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+
+
+<span class="s1">_mapped_prefix </span><span class="s4">= </span><span class="s7">b&quot;</span><span class="s3">\x00</span><span class="s7">&quot; </span><span class="s4">* </span><span class="s6">10 </span><span class="s4">+ </span><span class="s7">b&quot;</span><span class="s3">\xff\xff</span><span class="s7">&quot;</span>
+
+
+<span class="s3">def </span><span class="s1">is_mapped</span><span class="s4">(</span><span class="s1">address</span><span class="s4">: </span><span class="s1">bytes</span><span class="s4">) </span><span class="s1">-&gt; bool</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Is the specified address a mapped IPv4 address? 
+ 
+    *address*, a ``bytes`` is an IPv6 address in binary form. 
+ 
+    Returns a ``bool``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">address</span><span class="s4">.</span><span class="s1">startswith</span><span class="s4">(</span><span class="s1">_mapped_prefix</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">canonicalize</span><span class="s4">(</span><span class="s1">text</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">bytes</span><span class="s4">]) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Verify that *address* is a valid text form IPv6 address and return its 
+    canonical text form.  Addresses with scopes are rejected. 
+ 
+    *text*, a ``str`` or ``bytes``, the IPv6 address in textual form. 
+ 
+    Raises ``dns.exception.SyntaxError`` if the text is not valid. 
+    &quot;&quot;&quot;</span>
+    <span class="s3">return </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">inet_ntoa</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ipv6</span><span class="s4">.</span><span class="s1">inet_aton</span><span class="s4">(</span><span class="s1">text</span><span class="s4">))</span>
+</pre>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<html>
+<head>
+<title>rsa.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #5f826b; font-style: italic;}
+.s4 { color: #2aacb8;}
+.s5 { color: #6aab73;}
+.s6 { color: #a5c261;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+rsa.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">math</span>
+<span class="s0">import </span><span class="s1">struct</span>
+
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">backends </span><span class="s0">import </span><span class="s1">default_backend</span>
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives </span><span class="s0">import </span><span class="s1">hashes</span>
+<span class="s0">from </span><span class="s1">cryptography</span><span class="s2">.</span><span class="s1">hazmat</span><span class="s2">.</span><span class="s1">primitives</span><span class="s2">.</span><span class="s1">asymmetric </span><span class="s0">import </span><span class="s1">padding</span><span class="s2">, </span><span class="s1">rsa</span>
+
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssecalgs</span><span class="s2">.</span><span class="s1">cryptography </span><span class="s0">import </span><span class="s1">CryptographyPrivateKey</span><span class="s2">, </span><span class="s1">CryptographyPublicKey</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">dnssectypes </span><span class="s0">import </span><span class="s1">Algorithm</span>
+<span class="s0">from </span><span class="s1">dns</span><span class="s2">.</span><span class="s1">rdtypes</span><span class="s2">.</span><span class="s1">ANY</span><span class="s2">.</span><span class="s1">DNSKEY </span><span class="s0">import </span><span class="s1">DNSKEY</span>
+
+
+<span class="s0">class </span><span class="s1">PublicRSA</span><span class="s2">(</span><span class="s1">CryptographyPublicKey</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">rsa</span><span class="s2">.</span><span class="s1">RSAPublicKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">rsa</span><span class="s2">.</span><span class="s1">RSAPublicKey</span>
+    <span class="s1">algorithm</span><span class="s2">: </span><span class="s1">Algorithm</span>
+    <span class="s1">chosen_hash</span><span class="s2">: </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">HashAlgorithm</span>
+
+    <span class="s0">def </span><span class="s1">verify</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">signature</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">, </span><span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s0">None</span><span class="s2">:</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">signature</span><span class="s2">, </span><span class="s1">data</span><span class="s2">, </span><span class="s1">padding</span><span class="s2">.</span><span class="s1">PKCS1v15</span><span class="s2">(), </span><span class="s1">self</span><span class="s2">.</span><span class="s1">chosen_hash</span><span class="s2">)</span>
+
+    <span class="s0">def </span><span class="s1">encode_key_bytes</span><span class="s2">(</span><span class="s1">self</span><span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s3">&quot;&quot;&quot;Encode a public key per RFC 3110, section 2.&quot;&quot;&quot;</span>
+        <span class="s1">pn </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">public_numbers</span><span class="s2">()</span>
+        <span class="s1">_exp_len </span><span class="s2">= </span><span class="s1">math</span><span class="s2">.</span><span class="s1">ceil</span><span class="s2">(</span><span class="s1">int</span><span class="s2">.</span><span class="s1">bit_length</span><span class="s2">(</span><span class="s1">pn</span><span class="s2">.</span><span class="s1">e</span><span class="s2">) / </span><span class="s4">8</span><span class="s2">)</span>
+        <span class="s1">exp </span><span class="s2">= </span><span class="s1">int</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">(</span><span class="s1">pn</span><span class="s2">.</span><span class="s1">e</span><span class="s2">, </span><span class="s1">length</span><span class="s2">=</span><span class="s1">_exp_len</span><span class="s2">, </span><span class="s1">byteorder</span><span class="s2">=</span><span class="s5">&quot;big&quot;</span><span class="s2">)</span>
+        <span class="s0">if </span><span class="s1">_exp_len </span><span class="s2">&gt; </span><span class="s4">255</span><span class="s2">:</span>
+            <span class="s1">exp_header </span><span class="s2">= </span><span class="s6">b&quot;</span><span class="s0">\0</span><span class="s6">&quot; </span><span class="s2">+ </span><span class="s1">struct</span><span class="s2">.</span><span class="s1">pack</span><span class="s2">(</span><span class="s5">&quot;!H&quot;</span><span class="s2">, </span><span class="s1">_exp_len</span><span class="s2">)</span>
+        <span class="s0">else</span><span class="s2">:</span>
+            <span class="s1">exp_header </span><span class="s2">= </span><span class="s1">struct</span><span class="s2">.</span><span class="s1">pack</span><span class="s2">(</span><span class="s5">&quot;!B&quot;</span><span class="s2">, </span><span class="s1">_exp_len</span><span class="s2">)</span>
+        <span class="s0">if </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">n</span><span class="s2">.</span><span class="s1">bit_length</span><span class="s2">() &lt; </span><span class="s4">512 </span><span class="s0">or </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">n</span><span class="s2">.</span><span class="s1">bit_length</span><span class="s2">() &gt; </span><span class="s4">4096</span><span class="s2">:</span>
+            <span class="s0">raise </span><span class="s1">ValueError</span><span class="s2">(</span><span class="s5">&quot;unsupported RSA key length&quot;</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">exp_header </span><span class="s2">+ </span><span class="s1">exp </span><span class="s2">+ </span><span class="s1">pn</span><span class="s2">.</span><span class="s1">n</span><span class="s2">.</span><span class="s1">to_bytes</span><span class="s2">((</span><span class="s1">pn</span><span class="s2">.</span><span class="s1">n</span><span class="s2">.</span><span class="s1">bit_length</span><span class="s2">() + </span><span class="s4">7</span><span class="s2">) // </span><span class="s4">8</span><span class="s2">, </span><span class="s5">&quot;big&quot;</span><span class="s2">)</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">from_dnskey</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">, </span><span class="s1">key</span><span class="s2">: </span><span class="s1">DNSKEY</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s5">&quot;PublicRSA&quot;</span><span class="s2">:</span>
+        <span class="s1">cls</span><span class="s2">.</span><span class="s1">_ensure_algorithm_key_combination</span><span class="s2">(</span><span class="s1">key</span><span class="s2">)</span>
+        <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">key</span><span class="s2">.</span><span class="s1">key</span>
+        <span class="s2">(</span><span class="s1">bytes_</span><span class="s2">,) = </span><span class="s1">struct</span><span class="s2">.</span><span class="s1">unpack</span><span class="s2">(</span><span class="s5">&quot;!B&quot;</span><span class="s2">, </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s4">0</span><span class="s2">:</span><span class="s4">1</span><span class="s2">])</span>
+        <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s4">1</span><span class="s2">:]</span>
+        <span class="s0">if </span><span class="s1">bytes_ </span><span class="s2">== </span><span class="s4">0</span><span class="s2">:</span>
+            <span class="s2">(</span><span class="s1">bytes_</span><span class="s2">,) = </span><span class="s1">struct</span><span class="s2">.</span><span class="s1">unpack</span><span class="s2">(</span><span class="s5">&quot;!H&quot;</span><span class="s2">, </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s4">0</span><span class="s2">:</span><span class="s4">2</span><span class="s2">])</span>
+            <span class="s1">keyptr </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s4">2</span><span class="s2">:]</span>
+        <span class="s1">rsa_e </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s4">0</span><span class="s2">:</span><span class="s1">bytes_</span><span class="s2">]</span>
+        <span class="s1">rsa_n </span><span class="s2">= </span><span class="s1">keyptr</span><span class="s2">[</span><span class="s1">bytes_</span><span class="s2">:]</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span>
+            <span class="s1">key</span><span class="s2">=</span><span class="s1">rsa</span><span class="s2">.</span><span class="s1">RSAPublicNumbers</span><span class="s2">(</span>
+                <span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">rsa_e</span><span class="s2">, </span><span class="s5">&quot;big&quot;</span><span class="s2">), </span><span class="s1">int</span><span class="s2">.</span><span class="s1">from_bytes</span><span class="s2">(</span><span class="s1">rsa_n</span><span class="s2">, </span><span class="s5">&quot;big&quot;</span><span class="s2">)</span>
+            <span class="s2">).</span><span class="s1">public_key</span><span class="s2">(</span><span class="s1">default_backend</span><span class="s2">())</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateRSA</span><span class="s2">(</span><span class="s1">CryptographyPrivateKey</span><span class="s2">):</span>
+    <span class="s1">key</span><span class="s2">: </span><span class="s1">rsa</span><span class="s2">.</span><span class="s1">RSAPrivateKey</span>
+    <span class="s1">key_cls </span><span class="s2">= </span><span class="s1">rsa</span><span class="s2">.</span><span class="s1">RSAPrivateKey</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicRSA</span>
+    <span class="s1">default_public_exponent </span><span class="s2">= </span><span class="s4">65537</span>
+
+    <span class="s0">def </span><span class="s1">sign</span><span class="s2">(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">data</span><span class="s2">: </span><span class="s1">bytes</span><span class="s2">,</span>
+        <span class="s1">verify</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">False</span><span class="s2">,</span>
+        <span class="s1">deterministic</span><span class="s2">: </span><span class="s1">bool </span><span class="s2">= </span><span class="s0">True</span><span class="s2">,</span>
+    <span class="s2">) </span><span class="s1">-&gt; bytes</span><span class="s2">:</span>
+        <span class="s3">&quot;&quot;&quot;Sign using a private key per RFC 3110, section 3.&quot;&quot;&quot;</span>
+        <span class="s1">signature </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">key</span><span class="s2">.</span><span class="s1">sign</span><span class="s2">(</span><span class="s1">data</span><span class="s2">, </span><span class="s1">padding</span><span class="s2">.</span><span class="s1">PKCS1v15</span><span class="s2">(), </span><span class="s1">self</span><span class="s2">.</span><span class="s1">public_cls</span><span class="s2">.</span><span class="s1">chosen_hash</span><span class="s2">)</span>
+        <span class="s0">if </span><span class="s1">verify</span><span class="s2">:</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">public_key</span><span class="s2">().</span><span class="s1">verify</span><span class="s2">(</span><span class="s1">signature</span><span class="s2">, </span><span class="s1">data</span><span class="s2">)</span>
+        <span class="s0">return </span><span class="s1">signature</span>
+
+    <span class="s2">@</span><span class="s1">classmethod</span>
+    <span class="s0">def </span><span class="s1">generate</span><span class="s2">(</span><span class="s1">cls</span><span class="s2">, </span><span class="s1">key_size</span><span class="s2">: </span><span class="s1">int</span><span class="s2">) </span><span class="s1">-&gt; </span><span class="s5">&quot;PrivateRSA&quot;</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">cls</span><span class="s2">(</span>
+            <span class="s1">key</span><span class="s2">=</span><span class="s1">rsa</span><span class="s2">.</span><span class="s1">generate_private_key</span><span class="s2">(</span>
+                <span class="s1">public_exponent</span><span class="s2">=</span><span class="s1">cls</span><span class="s2">.</span><span class="s1">default_public_exponent</span><span class="s2">,</span>
+                <span class="s1">key_size</span><span class="s2">=</span><span class="s1">key_size</span><span class="s2">,</span>
+                <span class="s1">backend</span><span class="s2">=</span><span class="s1">default_backend</span><span class="s2">(),</span>
+            <span class="s2">)</span>
+        <span class="s2">)</span>
+
+
+<span class="s0">class </span><span class="s1">PublicRSAMD5</span><span class="s2">(</span><span class="s1">PublicRSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">RSAMD5</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">MD5</span><span class="s2">()</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateRSAMD5</span><span class="s2">(</span><span class="s1">PrivateRSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicRSAMD5</span>
+
+
+<span class="s0">class </span><span class="s1">PublicRSASHA1</span><span class="s2">(</span><span class="s1">PublicRSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">RSASHA1</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">SHA1</span><span class="s2">()</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateRSASHA1</span><span class="s2">(</span><span class="s1">PrivateRSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicRSASHA1</span>
+
+
+<span class="s0">class </span><span class="s1">PublicRSASHA1NSEC3SHA1</span><span class="s2">(</span><span class="s1">PublicRSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">RSASHA1NSEC3SHA1</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">SHA1</span><span class="s2">()</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateRSASHA1NSEC3SHA1</span><span class="s2">(</span><span class="s1">PrivateRSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicRSASHA1NSEC3SHA1</span>
+
+
+<span class="s0">class </span><span class="s1">PublicRSASHA256</span><span class="s2">(</span><span class="s1">PublicRSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">RSASHA256</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">SHA256</span><span class="s2">()</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateRSASHA256</span><span class="s2">(</span><span class="s1">PrivateRSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicRSASHA256</span>
+
+
+<span class="s0">class </span><span class="s1">PublicRSASHA512</span><span class="s2">(</span><span class="s1">PublicRSA</span><span class="s2">):</span>
+    <span class="s1">algorithm </span><span class="s2">= </span><span class="s1">Algorithm</span><span class="s2">.</span><span class="s1">RSASHA512</span>
+    <span class="s1">chosen_hash </span><span class="s2">= </span><span class="s1">hashes</span><span class="s2">.</span><span class="s1">SHA512</span><span class="s2">()</span>
+
+
+<span class="s0">class </span><span class="s1">PrivateRSASHA512</span><span class="s2">(</span><span class="s1">PrivateRSA</span><span class="s2">):</span>
+    <span class="s1">public_cls </span><span class="s2">= </span><span class="s1">PublicRSASHA512</span>
+</pre>
+</body>
+</html>

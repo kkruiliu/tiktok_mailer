@@ -1,0 +1,122 @@
+<html>
+<head>
+<title>_asyncbackend.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #cf8e6d;}
+.s3 { color: #bcbec4;}
+.s4 { color: #6aab73;}
+.s5 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_asyncbackend.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># This is a nullcontext for both sync and async.  3.7 has a nullcontext,</span>
+<span class="s0"># but it is only for sync use.</span>
+
+
+<span class="s2">class </span><span class="s1">NullContext</span><span class="s3">:</span>
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">enter_result</span><span class="s3">=</span><span class="s2">None</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">enter_result </span><span class="s3">= </span><span class="s1">enter_result</span>
+
+    <span class="s2">def </span><span class="s1">__enter__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">enter_result</span>
+
+    <span class="s2">def </span><span class="s1">__exit__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">exc_type</span><span class="s3">, </span><span class="s1">exc_value</span><span class="s3">, </span><span class="s1">traceback</span><span class="s3">):</span>
+        <span class="s2">pass</span>
+
+    <span class="s2">async def </span><span class="s1">__aenter__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span><span class="s3">.</span><span class="s1">enter_result</span>
+
+    <span class="s2">async def </span><span class="s1">__aexit__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">exc_type</span><span class="s3">, </span><span class="s1">exc_value</span><span class="s3">, </span><span class="s1">traceback</span><span class="s3">):</span>
+        <span class="s2">pass</span>
+
+
+<span class="s0"># These are declared here so backends can import them without creating</span>
+<span class="s0"># circular dependencies with dns.asyncbackend.</span>
+
+
+<span class="s2">class </span><span class="s1">Socket</span><span class="s3">:  </span><span class="s0"># pragma: no cover</span>
+    <span class="s2">def </span><span class="s1">__init__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">family</span><span class="s3">: </span><span class="s1">int</span><span class="s3">, </span><span class="s1">type</span><span class="s3">: </span><span class="s1">int</span><span class="s3">):</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">family </span><span class="s3">= </span><span class="s1">family</span>
+        <span class="s1">self</span><span class="s3">.</span><span class="s1">type </span><span class="s3">= </span><span class="s1">type</span>
+
+    <span class="s2">async def </span><span class="s1">close</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">pass</span>
+
+    <span class="s2">async def </span><span class="s1">getpeername</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">async def </span><span class="s1">getsockname</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">async def </span><span class="s1">getpeercert</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">async def </span><span class="s1">__aenter__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">async def </span><span class="s1">__aexit__</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">exc_type</span><span class="s3">, </span><span class="s1">exc_value</span><span class="s3">, </span><span class="s1">traceback</span><span class="s3">):</span>
+        <span class="s2">await </span><span class="s1">self</span><span class="s3">.</span><span class="s1">close</span><span class="s3">()</span>
+
+
+<span class="s2">class </span><span class="s1">DatagramSocket</span><span class="s3">(</span><span class="s1">Socket</span><span class="s3">):  </span><span class="s0"># pragma: no cover</span>
+    <span class="s2">async def </span><span class="s1">sendto</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">what</span><span class="s3">, </span><span class="s1">destination</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">async def </span><span class="s1">recvfrom</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">size</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+
+<span class="s2">class </span><span class="s1">StreamSocket</span><span class="s3">(</span><span class="s1">Socket</span><span class="s3">):  </span><span class="s0"># pragma: no cover</span>
+    <span class="s2">async def </span><span class="s1">sendall</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">what</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">async def </span><span class="s1">recv</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">size</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+
+<span class="s2">class </span><span class="s1">NullTransport</span><span class="s3">:</span>
+    <span class="s2">async def </span><span class="s1">connect_tcp</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">host</span><span class="s3">, </span><span class="s1">port</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">, </span><span class="s1">local_address</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+
+<span class="s2">class </span><span class="s1">Backend</span><span class="s3">:  </span><span class="s0"># pragma: no cover</span>
+    <span class="s2">def </span><span class="s1">name</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return </span><span class="s4">&quot;unknown&quot;</span>
+
+    <span class="s2">async def </span><span class="s1">make_socket</span><span class="s3">(</span>
+        <span class="s1">self</span><span class="s3">,</span>
+        <span class="s1">af</span><span class="s3">,</span>
+        <span class="s1">socktype</span><span class="s3">,</span>
+        <span class="s1">proto</span><span class="s3">=</span><span class="s5">0</span><span class="s3">,</span>
+        <span class="s1">source</span><span class="s3">=</span><span class="s2">None</span><span class="s3">,</span>
+        <span class="s1">destination</span><span class="s3">=</span><span class="s2">None</span><span class="s3">,</span>
+        <span class="s1">timeout</span><span class="s3">=</span><span class="s2">None</span><span class="s3">,</span>
+        <span class="s1">ssl_context</span><span class="s3">=</span><span class="s2">None</span><span class="s3">,</span>
+        <span class="s1">server_hostname</span><span class="s3">=</span><span class="s2">None</span><span class="s3">,</span>
+    <span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">def </span><span class="s1">datagram_connection_required</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">return False</span>
+
+    <span class="s2">async def </span><span class="s1">sleep</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">interval</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">def </span><span class="s1">get_transport_class</span><span class="s3">(</span><span class="s1">self</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s2">async def </span><span class="s1">wait_for</span><span class="s3">(</span><span class="s1">self</span><span class="s3">, </span><span class="s1">awaitable</span><span class="s3">, </span><span class="s1">timeout</span><span class="s3">):</span>
+        <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+</pre>
+</body>
+</html>

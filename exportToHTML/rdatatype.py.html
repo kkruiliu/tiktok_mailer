@@ -1,0 +1,359 @@
+<html>
+<head>
+<title>rdatatype.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #2aacb8;}
+.s6 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+rdatatype.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2001-2017 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;DNS Rdata Types.&quot;&quot;&quot;</span>
+
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Dict</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+
+
+<span class="s3">class </span><span class="s1">RdataType</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">enum</span><span class="s4">.</span><span class="s1">IntEnum</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;DNS Rdata Type&quot;&quot;&quot;</span>
+
+    <span class="s1">TYPE0 </span><span class="s4">= </span><span class="s5">0</span>
+    <span class="s1">NONE </span><span class="s4">= </span><span class="s5">0</span>
+    <span class="s1">A </span><span class="s4">= </span><span class="s5">1</span>
+    <span class="s1">NS </span><span class="s4">= </span><span class="s5">2</span>
+    <span class="s1">MD </span><span class="s4">= </span><span class="s5">3</span>
+    <span class="s1">MF </span><span class="s4">= </span><span class="s5">4</span>
+    <span class="s1">CNAME </span><span class="s4">= </span><span class="s5">5</span>
+    <span class="s1">SOA </span><span class="s4">= </span><span class="s5">6</span>
+    <span class="s1">MB </span><span class="s4">= </span><span class="s5">7</span>
+    <span class="s1">MG </span><span class="s4">= </span><span class="s5">8</span>
+    <span class="s1">MR </span><span class="s4">= </span><span class="s5">9</span>
+    <span class="s1">NULL </span><span class="s4">= </span><span class="s5">10</span>
+    <span class="s1">WKS </span><span class="s4">= </span><span class="s5">11</span>
+    <span class="s1">PTR </span><span class="s4">= </span><span class="s5">12</span>
+    <span class="s1">HINFO </span><span class="s4">= </span><span class="s5">13</span>
+    <span class="s1">MINFO </span><span class="s4">= </span><span class="s5">14</span>
+    <span class="s1">MX </span><span class="s4">= </span><span class="s5">15</span>
+    <span class="s1">TXT </span><span class="s4">= </span><span class="s5">16</span>
+    <span class="s1">RP </span><span class="s4">= </span><span class="s5">17</span>
+    <span class="s1">AFSDB </span><span class="s4">= </span><span class="s5">18</span>
+    <span class="s1">X25 </span><span class="s4">= </span><span class="s5">19</span>
+    <span class="s1">ISDN </span><span class="s4">= </span><span class="s5">20</span>
+    <span class="s1">RT </span><span class="s4">= </span><span class="s5">21</span>
+    <span class="s1">NSAP </span><span class="s4">= </span><span class="s5">22</span>
+    <span class="s1">NSAP_PTR </span><span class="s4">= </span><span class="s5">23</span>
+    <span class="s1">SIG </span><span class="s4">= </span><span class="s5">24</span>
+    <span class="s1">KEY </span><span class="s4">= </span><span class="s5">25</span>
+    <span class="s1">PX </span><span class="s4">= </span><span class="s5">26</span>
+    <span class="s1">GPOS </span><span class="s4">= </span><span class="s5">27</span>
+    <span class="s1">AAAA </span><span class="s4">= </span><span class="s5">28</span>
+    <span class="s1">LOC </span><span class="s4">= </span><span class="s5">29</span>
+    <span class="s1">NXT </span><span class="s4">= </span><span class="s5">30</span>
+    <span class="s1">SRV </span><span class="s4">= </span><span class="s5">33</span>
+    <span class="s1">NAPTR </span><span class="s4">= </span><span class="s5">35</span>
+    <span class="s1">KX </span><span class="s4">= </span><span class="s5">36</span>
+    <span class="s1">CERT </span><span class="s4">= </span><span class="s5">37</span>
+    <span class="s1">A6 </span><span class="s4">= </span><span class="s5">38</span>
+    <span class="s1">DNAME </span><span class="s4">= </span><span class="s5">39</span>
+    <span class="s1">OPT </span><span class="s4">= </span><span class="s5">41</span>
+    <span class="s1">APL </span><span class="s4">= </span><span class="s5">42</span>
+    <span class="s1">DS </span><span class="s4">= </span><span class="s5">43</span>
+    <span class="s1">SSHFP </span><span class="s4">= </span><span class="s5">44</span>
+    <span class="s1">IPSECKEY </span><span class="s4">= </span><span class="s5">45</span>
+    <span class="s1">RRSIG </span><span class="s4">= </span><span class="s5">46</span>
+    <span class="s1">NSEC </span><span class="s4">= </span><span class="s5">47</span>
+    <span class="s1">DNSKEY </span><span class="s4">= </span><span class="s5">48</span>
+    <span class="s1">DHCID </span><span class="s4">= </span><span class="s5">49</span>
+    <span class="s1">NSEC3 </span><span class="s4">= </span><span class="s5">50</span>
+    <span class="s1">NSEC3PARAM </span><span class="s4">= </span><span class="s5">51</span>
+    <span class="s1">TLSA </span><span class="s4">= </span><span class="s5">52</span>
+    <span class="s1">SMIMEA </span><span class="s4">= </span><span class="s5">53</span>
+    <span class="s1">HIP </span><span class="s4">= </span><span class="s5">55</span>
+    <span class="s1">NINFO </span><span class="s4">= </span><span class="s5">56</span>
+    <span class="s1">CDS </span><span class="s4">= </span><span class="s5">59</span>
+    <span class="s1">CDNSKEY </span><span class="s4">= </span><span class="s5">60</span>
+    <span class="s1">OPENPGPKEY </span><span class="s4">= </span><span class="s5">61</span>
+    <span class="s1">CSYNC </span><span class="s4">= </span><span class="s5">62</span>
+    <span class="s1">ZONEMD </span><span class="s4">= </span><span class="s5">63</span>
+    <span class="s1">SVCB </span><span class="s4">= </span><span class="s5">64</span>
+    <span class="s1">HTTPS </span><span class="s4">= </span><span class="s5">65</span>
+    <span class="s1">SPF </span><span class="s4">= </span><span class="s5">99</span>
+    <span class="s1">UNSPEC </span><span class="s4">= </span><span class="s5">103</span>
+    <span class="s1">NID </span><span class="s4">= </span><span class="s5">104</span>
+    <span class="s1">L32 </span><span class="s4">= </span><span class="s5">105</span>
+    <span class="s1">L64 </span><span class="s4">= </span><span class="s5">106</span>
+    <span class="s1">LP </span><span class="s4">= </span><span class="s5">107</span>
+    <span class="s1">EUI48 </span><span class="s4">= </span><span class="s5">108</span>
+    <span class="s1">EUI64 </span><span class="s4">= </span><span class="s5">109</span>
+    <span class="s1">TKEY </span><span class="s4">= </span><span class="s5">249</span>
+    <span class="s1">TSIG </span><span class="s4">= </span><span class="s5">250</span>
+    <span class="s1">IXFR </span><span class="s4">= </span><span class="s5">251</span>
+    <span class="s1">AXFR </span><span class="s4">= </span><span class="s5">252</span>
+    <span class="s1">MAILB </span><span class="s4">= </span><span class="s5">253</span>
+    <span class="s1">MAILA </span><span class="s4">= </span><span class="s5">254</span>
+    <span class="s1">ANY </span><span class="s4">= </span><span class="s5">255</span>
+    <span class="s1">URI </span><span class="s4">= </span><span class="s5">256</span>
+    <span class="s1">CAA </span><span class="s4">= </span><span class="s5">257</span>
+    <span class="s1">AVC </span><span class="s4">= </span><span class="s5">258</span>
+    <span class="s1">AMTRELAY </span><span class="s4">= </span><span class="s5">260</span>
+    <span class="s1">RESINFO </span><span class="s4">= </span><span class="s5">261</span>
+    <span class="s1">WALLET </span><span class="s4">= </span><span class="s5">262</span>
+    <span class="s1">TA </span><span class="s4">= </span><span class="s5">32768</span>
+    <span class="s1">DLV </span><span class="s4">= </span><span class="s5">32769</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_maximum</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s5">65535</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_short_name</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s6">&quot;type&quot;</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_prefix</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s6">&quot;TYPE&quot;</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_extra_from_text</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">text</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">text</span><span class="s4">.</span><span class="s1">find</span><span class="s4">(</span><span class="s6">&quot;-&quot;</span><span class="s4">) &gt;= </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s3">return </span><span class="s1">cls</span><span class="s4">[</span><span class="s1">text</span><span class="s4">.</span><span class="s1">replace</span><span class="s4">(</span><span class="s6">&quot;-&quot;</span><span class="s4">, </span><span class="s6">&quot;_&quot;</span><span class="s4">)]</span>
+            <span class="s3">except </span><span class="s1">KeyError</span><span class="s4">:  </span><span class="s0"># pragma: no cover</span>
+                <span class="s3">pass</span>
+        <span class="s3">return </span><span class="s1">_registered_by_text</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s1">text</span><span class="s4">)</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_extra_to_text</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">, </span><span class="s1">value</span><span class="s4">, </span><span class="s1">current_text</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">current_text </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">_registered_by_value</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">current_text</span><span class="s4">.</span><span class="s1">find</span><span class="s4">(</span><span class="s6">&quot;_&quot;</span><span class="s4">) &gt;= </span><span class="s5">0</span><span class="s4">:</span>
+            <span class="s3">return </span><span class="s1">current_text</span><span class="s4">.</span><span class="s1">replace</span><span class="s4">(</span><span class="s6">&quot;_&quot;</span><span class="s4">, </span><span class="s6">&quot;-&quot;</span><span class="s4">)</span>
+        <span class="s3">return </span><span class="s1">current_text</span>
+
+    <span class="s4">@</span><span class="s1">classmethod</span>
+    <span class="s3">def </span><span class="s1">_unknown_exception_class</span><span class="s4">(</span><span class="s1">cls</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">UnknownRdatatype</span>
+
+
+<span class="s1">_registered_by_text</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">RdataType</span><span class="s4">] = {}</span>
+<span class="s1">_registered_by_value</span><span class="s4">: </span><span class="s1">Dict</span><span class="s4">[</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = {}</span>
+
+<span class="s1">_metatypes </span><span class="s4">= {</span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">OPT</span><span class="s4">}</span>
+
+<span class="s1">_singletons </span><span class="s4">= {</span>
+    <span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SOA</span><span class="s4">,</span>
+    <span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NXT</span><span class="s4">,</span>
+    <span class="s1">RdataType</span><span class="s4">.</span><span class="s1">DNAME</span><span class="s4">,</span>
+    <span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NSEC</span><span class="s4">,</span>
+    <span class="s1">RdataType</span><span class="s4">.</span><span class="s1">CNAME</span><span class="s4">,</span>
+<span class="s4">}</span>
+
+
+<span class="s3">class </span><span class="s1">UnknownRdatatype</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;DNS resource record type is unknown.&quot;&quot;&quot;</span>
+
+
+<span class="s3">def </span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">) </span><span class="s1">-&gt; RdataType</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert text into a DNS rdata type value. 
+ 
+    The input text can be a defined DNS RR type mnemonic or 
+    instance of the DNS generic type syntax. 
+ 
+    For example, &quot;NS&quot; and &quot;TYPE2&quot; will both result in a value of 2. 
+ 
+    Raises ``dns.rdatatype.UnknownRdatatype`` if the type is unknown. 
+ 
+    Raises ``ValueError`` if the rdata type value is not &gt;= 0 and &lt;= 65535. 
+ 
+    Returns a ``dns.rdatatype.RdataType``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">text</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">value</span><span class="s4">: </span><span class="s1">RdataType</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Convert a DNS rdata type value to text. 
+ 
+    If the value has a known mnemonic, it will be used, otherwise the 
+    DNS generic type syntax will be used. 
+ 
+    Raises ``ValueError`` if the rdata type value is not &gt;= 0 and &lt;= 65535. 
+ 
+    Returns a ``str``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">to_text</span><span class="s4">(</span><span class="s1">value</span><span class="s4">)</span>
+
+
+<span class="s3">def </span><span class="s1">is_metatype</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">: </span><span class="s1">RdataType</span><span class="s4">) </span><span class="s1">-&gt; bool</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;True if the specified type is a metatype. 
+ 
+    *rdtype* is a ``dns.rdatatype.RdataType``. 
+ 
+    The currently defined metatypes are TKEY, TSIG, IXFR, AXFR, MAILA, 
+    MAILB, ANY, and OPT. 
+ 
+    Returns a ``bool``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">return </span><span class="s4">(</span><span class="s5">256 </span><span class="s4">&gt; </span><span class="s1">rdtype </span><span class="s4">&gt;= </span><span class="s5">128</span><span class="s4">) </span><span class="s3">or </span><span class="s1">rdtype </span><span class="s3">in </span><span class="s1">_metatypes</span>
+
+
+<span class="s3">def </span><span class="s1">is_singleton</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">: </span><span class="s1">RdataType</span><span class="s4">) </span><span class="s1">-&gt; bool</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Is the specified type a singleton type? 
+ 
+    Singleton types can only have a single rdata in an rdataset, or a single 
+    RR in an RRset. 
+ 
+    The currently defined singleton types are CNAME, DNAME, NSEC, NXT, and 
+    SOA. 
+ 
+    *rdtype* is an ``int``. 
+ 
+    Returns a ``bool``. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">rdtype </span><span class="s3">in </span><span class="s1">_singletons</span><span class="s4">:</span>
+        <span class="s3">return True</span>
+    <span class="s3">return False</span>
+
+
+<span class="s0"># pylint: disable=redefined-outer-name</span>
+<span class="s3">def </span><span class="s1">register_type</span><span class="s4">(</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">rdtype_text</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, </span><span class="s1">is_singleton</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span>
+<span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Dynamically register an rdatatype. 
+ 
+    *rdtype*, a ``dns.rdatatype.RdataType``, the rdatatype to register. 
+ 
+    *rdtype_text*, a ``str``, the textual form of the rdatatype. 
+ 
+    *is_singleton*, a ``bool``, indicating if the type is a singleton (i.e. 
+    RRsets of the type can have only one member.) 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">_registered_by_text</span><span class="s4">[</span><span class="s1">rdtype_text</span><span class="s4">] = </span><span class="s1">rdtype</span>
+    <span class="s1">_registered_by_value</span><span class="s4">[</span><span class="s1">rdtype</span><span class="s4">] = </span><span class="s1">rdtype_text</span>
+    <span class="s3">if </span><span class="s1">is_singleton</span><span class="s4">:</span>
+        <span class="s1">_singletons</span><span class="s4">.</span><span class="s1">add</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">)</span>
+
+
+<span class="s0">### BEGIN generated RdataType constants</span>
+
+<span class="s1">TYPE0 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">TYPE0</span>
+<span class="s1">NONE </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NONE</span>
+<span class="s1">A </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">A</span>
+<span class="s1">NS </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NS</span>
+<span class="s1">MD </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MD</span>
+<span class="s1">MF </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MF</span>
+<span class="s1">CNAME </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">CNAME</span>
+<span class="s1">SOA </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SOA</span>
+<span class="s1">MB </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MB</span>
+<span class="s1">MG </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MG</span>
+<span class="s1">MR </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MR</span>
+<span class="s1">NULL </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NULL</span>
+<span class="s1">WKS </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">WKS</span>
+<span class="s1">PTR </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">PTR</span>
+<span class="s1">HINFO </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">HINFO</span>
+<span class="s1">MINFO </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MINFO</span>
+<span class="s1">MX </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MX</span>
+<span class="s1">TXT </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">TXT</span>
+<span class="s1">RP </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">RP</span>
+<span class="s1">AFSDB </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">AFSDB</span>
+<span class="s1">X25 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">X25</span>
+<span class="s1">ISDN </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">ISDN</span>
+<span class="s1">RT </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">RT</span>
+<span class="s1">NSAP </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NSAP</span>
+<span class="s1">NSAP_PTR </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NSAP_PTR</span>
+<span class="s1">SIG </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SIG</span>
+<span class="s1">KEY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">KEY</span>
+<span class="s1">PX </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">PX</span>
+<span class="s1">GPOS </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">GPOS</span>
+<span class="s1">AAAA </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">AAAA</span>
+<span class="s1">LOC </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">LOC</span>
+<span class="s1">NXT </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NXT</span>
+<span class="s1">SRV </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SRV</span>
+<span class="s1">NAPTR </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NAPTR</span>
+<span class="s1">KX </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">KX</span>
+<span class="s1">CERT </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">CERT</span>
+<span class="s1">A6 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">A6</span>
+<span class="s1">DNAME </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">DNAME</span>
+<span class="s1">OPT </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">OPT</span>
+<span class="s1">APL </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">APL</span>
+<span class="s1">DS </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">DS</span>
+<span class="s1">SSHFP </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SSHFP</span>
+<span class="s1">IPSECKEY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">IPSECKEY</span>
+<span class="s1">RRSIG </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">RRSIG</span>
+<span class="s1">NSEC </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NSEC</span>
+<span class="s1">DNSKEY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">DNSKEY</span>
+<span class="s1">DHCID </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">DHCID</span>
+<span class="s1">NSEC3 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NSEC3</span>
+<span class="s1">NSEC3PARAM </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NSEC3PARAM</span>
+<span class="s1">TLSA </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">TLSA</span>
+<span class="s1">SMIMEA </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SMIMEA</span>
+<span class="s1">HIP </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">HIP</span>
+<span class="s1">NINFO </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NINFO</span>
+<span class="s1">CDS </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">CDS</span>
+<span class="s1">CDNSKEY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">CDNSKEY</span>
+<span class="s1">OPENPGPKEY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">OPENPGPKEY</span>
+<span class="s1">CSYNC </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">CSYNC</span>
+<span class="s1">ZONEMD </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">ZONEMD</span>
+<span class="s1">SVCB </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SVCB</span>
+<span class="s1">HTTPS </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">HTTPS</span>
+<span class="s1">SPF </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">SPF</span>
+<span class="s1">UNSPEC </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">UNSPEC</span>
+<span class="s1">NID </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">NID</span>
+<span class="s1">L32 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">L32</span>
+<span class="s1">L64 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">L64</span>
+<span class="s1">LP </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">LP</span>
+<span class="s1">EUI48 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">EUI48</span>
+<span class="s1">EUI64 </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">EUI64</span>
+<span class="s1">TKEY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">TKEY</span>
+<span class="s1">TSIG </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">TSIG</span>
+<span class="s1">IXFR </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">IXFR</span>
+<span class="s1">AXFR </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">AXFR</span>
+<span class="s1">MAILB </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MAILB</span>
+<span class="s1">MAILA </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">MAILA</span>
+<span class="s1">ANY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">ANY</span>
+<span class="s1">URI </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">URI</span>
+<span class="s1">CAA </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">CAA</span>
+<span class="s1">AVC </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">AVC</span>
+<span class="s1">AMTRELAY </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">AMTRELAY</span>
+<span class="s1">RESINFO </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">RESINFO</span>
+<span class="s1">WALLET </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">WALLET</span>
+<span class="s1">TA </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">TA</span>
+<span class="s1">DLV </span><span class="s4">= </span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">DLV</span>
+
+<span class="s0">### END generated RdataType constants</span>
+</pre>
+</body>
+</html>

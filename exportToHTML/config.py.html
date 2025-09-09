@@ -1,0 +1,33 @@
+<html>
+<head>
+<title>config.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+config.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">os</span>
+<span class="s0">from </span><span class="s1">dotenv </span><span class="s0">import </span><span class="s1">load_dotenv</span>
+
+<span class="s1">load_dotenv</span><span class="s2">()</span>
+
+<span class="s1">MONGO_URI </span><span class="s2">= </span><span class="s1">os</span><span class="s2">.</span><span class="s1">getenv</span><span class="s2">(</span><span class="s3">&quot;MONGO_URI&quot;</span><span class="s2">)</span>
+<span class="s1">DEFAULT_SMTP </span><span class="s2">= {</span>
+    <span class="s3">&quot;smtp_host&quot;</span><span class="s2">: </span><span class="s1">os</span><span class="s2">.</span><span class="s1">getenv</span><span class="s2">(</span><span class="s3">&quot;DEFAULT_SMTP_HOST&quot;</span><span class="s2">),</span>
+    <span class="s3">&quot;smtp_port&quot;</span><span class="s2">: </span><span class="s1">int</span><span class="s2">(</span><span class="s1">os</span><span class="s2">.</span><span class="s1">getenv</span><span class="s2">(</span><span class="s3">&quot;DEFAULT_SMTP_PORT&quot;</span><span class="s2">)),</span>
+    <span class="s3">&quot;username&quot;</span><span class="s2">: </span><span class="s1">os</span><span class="s2">.</span><span class="s1">getenv</span><span class="s2">(</span><span class="s3">&quot;DEFAULT_USERNAME&quot;</span><span class="s2">),</span>
+    <span class="s3">&quot;password&quot;</span><span class="s2">: </span><span class="s1">os</span><span class="s2">.</span><span class="s1">getenv</span><span class="s2">(</span><span class="s3">&quot;DEFAULT_PASSWORD&quot;</span><span class="s2">),</span>
+    <span class="s3">&quot;tls&quot;</span><span class="s2">: </span><span class="s0">True</span>
+<span class="s2">}</span>
+</pre>
+</body>
+</html>

@@ -1,0 +1,767 @@
+<html>
+<head>
+<title>zonefile.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7a7e85;}
+.s1 { color: #bcbec4;}
+.s2 { color: #5f826b; font-style: italic;}
+.s3 { color: #cf8e6d;}
+.s4 { color: #bcbec4;}
+.s5 { color: #6aab73;}
+.s6 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+zonefile.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license</span>
+
+<span class="s0"># Copyright (C) 2003-2007, 2009-2011 Nominum, Inc.</span>
+<span class="s0">#</span>
+<span class="s0"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="s0"># documentation for any purpose with or without fee is hereby granted,</span>
+<span class="s0"># provided that the above copyright notice and this permission notice</span>
+<span class="s0"># appear in all copies.</span>
+<span class="s0">#</span>
+<span class="s0"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND NOMINUM DISCLAIMS ALL WARRANTIES</span>
+<span class="s0"># WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF</span>
+<span class="s0"># MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL NOMINUM BE LIABLE FOR</span>
+<span class="s0"># ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES</span>
+<span class="s0"># WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN</span>
+<span class="s0"># ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="s0"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="s2">&quot;&quot;&quot;DNS Zones.&quot;&quot;&quot;</span>
+
+<span class="s3">import </span><span class="s1">re</span>
+<span class="s3">import </span><span class="s1">sys</span>
+<span class="s3">from </span><span class="s1">typing </span><span class="s3">import </span><span class="s1">Any</span><span class="s4">, </span><span class="s1">Iterable</span><span class="s4">, </span><span class="s1">List</span><span class="s4">, </span><span class="s1">Optional</span><span class="s4">, </span><span class="s1">Set</span><span class="s4">, </span><span class="s1">Tuple</span><span class="s4">, </span><span class="s1">Union</span>
+
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">grange</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdtypes</span><span class="s4">.</span><span class="s1">ANY</span><span class="s4">.</span><span class="s1">SOA</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rrset</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">transaction</span>
+<span class="s3">import </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span>
+
+
+<span class="s3">class </span><span class="s1">UnknownOrigin</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;Unknown origin&quot;&quot;&quot;</span>
+
+
+<span class="s3">class </span><span class="s1">CNAMEAndOtherData</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">DNSException</span><span class="s4">):</span>
+    <span class="s2">&quot;&quot;&quot;A node has a CNAME and other data&quot;&quot;&quot;</span>
+
+
+<span class="s3">def </span><span class="s1">_check_cname_and_other_data</span><span class="s4">(</span><span class="s1">txn</span><span class="s4">, </span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">):</span>
+    <span class="s1">rdataset_kind </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span><span class="s4">.</span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">classify_rdataset</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">)</span>
+    <span class="s1">node </span><span class="s4">= </span><span class="s1">txn</span><span class="s4">.</span><span class="s1">get_node</span><span class="s4">(</span><span class="s1">name</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">node </span><span class="s3">is None</span><span class="s4">:</span>
+        <span class="s0"># empty nodes are neutral.</span>
+        <span class="s3">return</span>
+    <span class="s1">node_kind </span><span class="s4">= </span><span class="s1">node</span><span class="s4">.</span><span class="s1">classify</span><span class="s4">()</span>
+    <span class="s3">if </span><span class="s4">(</span>
+        <span class="s1">node_kind </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span><span class="s4">.</span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">CNAME</span>
+        <span class="s3">and </span><span class="s1">rdataset_kind </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span><span class="s4">.</span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">REGULAR</span>
+    <span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">CNAMEAndOtherData</span><span class="s4">(</span><span class="s5">&quot;rdataset type is not compatible with a CNAME node&quot;</span><span class="s4">)</span>
+    <span class="s3">elif </span><span class="s4">(</span>
+        <span class="s1">node_kind </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span><span class="s4">.</span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">REGULAR</span>
+        <span class="s3">and </span><span class="s1">rdataset_kind </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span><span class="s4">.</span><span class="s1">NodeKind</span><span class="s4">.</span><span class="s1">CNAME</span>
+    <span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">CNAMEAndOtherData</span><span class="s4">(</span>
+            <span class="s5">&quot;CNAME rdataset is not compatible with a regular data node&quot;</span>
+        <span class="s4">)</span>
+    <span class="s0"># Otherwise at least one of the node and the rdataset is neutral, so</span>
+    <span class="s0"># adding the rdataset is ok</span>
+
+
+<span class="s1">SavedStateType </span><span class="s4">= </span><span class="s1">Tuple</span><span class="s4">[</span>
+    <span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span><span class="s4">.</span><span class="s1">Tokenizer</span><span class="s4">,</span>
+    <span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">],  </span><span class="s0"># current_origin</span>
+    <span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">],  </span><span class="s0"># last_name</span>
+    <span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">],  </span><span class="s0"># current_file</span>
+    <span class="s1">int</span><span class="s4">,  </span><span class="s0"># last_ttl</span>
+    <span class="s1">bool</span><span class="s4">,  </span><span class="s0"># last_ttl_known</span>
+    <span class="s1">int</span><span class="s4">,  </span><span class="s0"># default_ttl</span>
+    <span class="s1">bool</span><span class="s4">,</span>
+<span class="s4">]  </span><span class="s0"># default_ttl_known</span>
+
+
+<span class="s3">def </span><span class="s1">_upper_dollarize</span><span class="s4">(</span><span class="s1">s</span><span class="s4">):</span>
+    <span class="s1">s </span><span class="s4">= </span><span class="s1">s</span><span class="s4">.</span><span class="s1">upper</span><span class="s4">()</span>
+    <span class="s3">if not </span><span class="s1">s</span><span class="s4">.</span><span class="s1">startswith</span><span class="s4">(</span><span class="s5">&quot;$&quot;</span><span class="s4">):</span>
+        <span class="s1">s </span><span class="s4">= </span><span class="s5">&quot;$&quot; </span><span class="s4">+ </span><span class="s1">s</span>
+    <span class="s3">return </span><span class="s1">s</span>
+
+
+<span class="s3">class </span><span class="s1">Reader</span><span class="s4">:</span>
+    <span class="s2">&quot;&quot;&quot;Read a DNS zone file into a transaction.&quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">,</span>
+        <span class="s1">tok</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span><span class="s4">.</span><span class="s1">Tokenizer</span><span class="s4">,</span>
+        <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">,</span>
+        <span class="s1">txn</span><span class="s4">: </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">transaction</span><span class="s4">.</span><span class="s1">Transaction</span><span class="s4">,</span>
+        <span class="s1">allow_include</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+        <span class="s1">allow_directives</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">bool</span><span class="s4">, </span><span class="s1">Iterable</span><span class="s4">[</span><span class="s1">str</span><span class="s4">]] = </span><span class="s3">True</span><span class="s4">,</span>
+        <span class="s1">force_name</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">force_ttl</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">force_rdclass</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">force_rdtype</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+        <span class="s1">default_ttl</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">tok </span><span class="s4">= </span><span class="s1">tok</span>
+        <span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">, </span><span class="s1">_</span><span class="s4">) = </span><span class="s1">txn</span><span class="s4">.</span><span class="s1">manager</span><span class="s4">.</span><span class="s1">origin_information</span><span class="s4">()</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl </span><span class="s4">= </span><span class="s6">0</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s3">if </span><span class="s1">force_ttl </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">default_ttl </span><span class="s4">= </span><span class="s1">force_ttl</span>
+        <span class="s3">if </span><span class="s1">default_ttl </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl </span><span class="s4">= </span><span class="s6">0</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known </span><span class="s4">= </span><span class="s3">False</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl </span><span class="s4">= </span><span class="s1">default_ttl</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known </span><span class="s4">= </span><span class="s3">True</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">last_name </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">zone_rdclass </span><span class="s4">= </span><span class="s1">rdclass</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">txn </span><span class="s4">= </span><span class="s1">txn</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">saved_state</span><span class="s4">: </span><span class="s1">List</span><span class="s4">[</span><span class="s1">SavedStateType</span><span class="s4">] = []</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">current_file</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Any</span><span class="s4">] = </span><span class="s3">None</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">allowed_directives</span><span class="s4">: </span><span class="s1">Set</span><span class="s4">[</span><span class="s1">str</span><span class="s4">]</span>
+        <span class="s3">if </span><span class="s1">allow_directives </span><span class="s3">is True</span><span class="s4">:</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">allowed_directives </span><span class="s4">= {</span><span class="s5">&quot;$GENERATE&quot;</span><span class="s4">, </span><span class="s5">&quot;$ORIGIN&quot;</span><span class="s4">, </span><span class="s5">&quot;$TTL&quot;</span><span class="s4">}</span>
+            <span class="s3">if </span><span class="s1">allow_include</span><span class="s4">:</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">allowed_directives</span><span class="s4">.</span><span class="s1">add</span><span class="s4">(</span><span class="s5">&quot;$INCLUDE&quot;</span><span class="s4">)</span>
+        <span class="s3">elif </span><span class="s1">allow_directives </span><span class="s3">is False</span><span class="s4">:</span>
+            <span class="s0"># allow_include was ignored in earlier releases if allow_directives was</span>
+            <span class="s0"># False, so we continue that.</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">allowed_directives </span><span class="s4">= </span><span class="s1">set</span><span class="s4">()</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s0"># Note that if directives are explicitly specified, then allow_include</span>
+            <span class="s0"># is ignored.</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">allowed_directives </span><span class="s4">= </span><span class="s1">set</span><span class="s4">(</span><span class="s1">_upper_dollarize</span><span class="s4">(</span><span class="s1">d</span><span class="s4">) </span><span class="s3">for </span><span class="s1">d </span><span class="s3">in </span><span class="s1">allow_directives</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">force_name </span><span class="s4">= </span><span class="s1">force_name</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">force_ttl </span><span class="s4">= </span><span class="s1">force_ttl</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">force_rdclass </span><span class="s4">= </span><span class="s1">force_rdclass</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">force_rdtype </span><span class="s4">= </span><span class="s1">force_rdtype</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">txn</span><span class="s4">.</span><span class="s1">check_put_rdataset</span><span class="s4">(</span><span class="s1">_check_cname_and_other_data</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_eat_line</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">while </span><span class="s6">1</span><span class="s4">:</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+            <span class="s3">if </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_eol_or_eof</span><span class="s4">():</span>
+                <span class="s3">break</span>
+
+    <span class="s3">def </span><span class="s1">_get_identifier</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+        <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+        <span class="s3">return </span><span class="s1">token</span>
+
+    <span class="s3">def </span><span class="s1">_rr_line</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s2">&quot;&quot;&quot;Process one line from a DNS zone file.&quot;&quot;&quot;</span>
+        <span class="s1">token </span><span class="s4">= </span><span class="s3">None</span>
+        <span class="s0"># Name</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_name </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">name </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_name</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin </span><span class="s3">is None</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">UnknownOrigin</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s1">want_leading</span><span class="s4">=</span><span class="s3">True</span><span class="s4">)</span>
+            <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_whitespace</span><span class="s4">():</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_name </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">as_name</span><span class="s4">(</span><span class="s1">token</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">)</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+                <span class="s3">if </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_eol_or_eof</span><span class="s4">():</span>
+                    <span class="s0"># treat leading WS followed by EOL/EOF as if they were EOL/EOF.</span>
+                    <span class="s3">return</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">unget</span><span class="s4">(</span><span class="s1">token</span><span class="s4">)</span>
+            <span class="s1">name </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">last_name</span>
+            <span class="s3">if not </span><span class="s1">name</span><span class="s4">.</span><span class="s1">is_subdomain</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span><span class="s4">):</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">_eat_line</span><span class="s4">()</span>
+                <span class="s3">return</span>
+            <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">:</span>
+                <span class="s1">name </span><span class="s4">= </span><span class="s1">name</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span><span class="s4">)</span>
+
+        <span class="s0"># TTL</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_ttl </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">ttl </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_ttl</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl </span><span class="s4">= </span><span class="s1">ttl</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known </span><span class="s4">= </span><span class="s3">True</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_get_identifier</span><span class="s4">()</span>
+            <span class="s1">ttl </span><span class="s4">= </span><span class="s3">None</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s1">ttl </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl </span><span class="s4">= </span><span class="s1">ttl</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known </span><span class="s4">= </span><span class="s3">True</span>
+                <span class="s1">token </span><span class="s4">= </span><span class="s3">None</span>
+            <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">BadTTL</span><span class="s4">:</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">unget</span><span class="s4">(</span><span class="s1">token</span><span class="s4">)</span>
+
+        <span class="s0"># Class</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_rdclass </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_rdclass</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_get_identifier</span><span class="s4">()</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">:</span>
+                <span class="s3">raise</span>
+            <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+                <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_rdclass</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">unget</span><span class="s4">(</span><span class="s1">token</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_rdclass</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;RR class is not zone's class&quot;</span><span class="s4">)</span>
+
+        <span class="s3">if </span><span class="s1">ttl </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s0"># support for &lt;class&gt; &lt;ttl&gt; &lt;type&gt; syntax</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_get_identifier</span><span class="s4">()</span>
+            <span class="s1">ttl </span><span class="s4">= </span><span class="s3">None</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s1">ttl </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl </span><span class="s4">= </span><span class="s1">ttl</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known </span><span class="s4">= </span><span class="s3">True</span>
+                <span class="s1">token </span><span class="s4">= </span><span class="s3">None</span>
+            <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">BadTTL</span><span class="s4">:</span>
+                <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known</span><span class="s4">:</span>
+                    <span class="s1">ttl </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl</span>
+                <span class="s3">elif </span><span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known</span><span class="s4">:</span>
+                    <span class="s1">ttl </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">unget</span><span class="s4">(</span><span class="s1">token</span><span class="s4">)</span>
+
+        <span class="s0"># Type</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_rdtype </span><span class="s3">is not None</span><span class="s4">:</span>
+            <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">force_rdtype</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_get_identifier</span><span class="s4">()</span>
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">f&quot;unknown rdatatype '</span><span class="s3">{</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s3">}</span><span class="s5">'&quot;</span><span class="s4">)</span>
+
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">rd </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span>
+                <span class="s1">rdclass</span><span class="s4">,</span>
+                <span class="s1">rdtype</span><span class="s4">,</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">,</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">,</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">,</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span><span class="s4">,</span>
+            <span class="s4">)</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">:</span>
+            <span class="s0"># Catch and reraise.</span>
+            <span class="s3">raise</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s0"># All exceptions that occur in the processing of rdata</span>
+            <span class="s0"># are treated as syntax errors.  This is not strictly</span>
+            <span class="s0"># correct, but it is correct almost all of the time.</span>
+            <span class="s0"># We convert them to syntax errors so that we can emit</span>
+            <span class="s0"># helpful filename:line info.</span>
+            <span class="s4">(</span><span class="s1">ty</span><span class="s4">, </span><span class="s1">va</span><span class="s4">) = </span><span class="s1">sys</span><span class="s4">.</span><span class="s1">exc_info</span><span class="s4">()[:</span><span class="s6">2</span><span class="s4">]</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">f&quot;caught exception </span><span class="s3">{</span><span class="s1">str</span><span class="s4">(</span><span class="s1">ty</span><span class="s4">)</span><span class="s3">}</span><span class="s5">: </span><span class="s3">{</span><span class="s1">str</span><span class="s4">(</span><span class="s1">va</span><span class="s4">)</span><span class="s3">}</span><span class="s5">&quot;</span><span class="s4">)</span>
+
+        <span class="s3">if not </span><span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known </span><span class="s3">and </span><span class="s1">rdtype </span><span class="s4">== </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">SOA</span><span class="s4">:</span>
+            <span class="s0"># The pre-RFC2308 and pre-BIND9 behavior inherits the zone default</span>
+            <span class="s0"># TTL from the SOA minttl if no $TTL statement is present before the</span>
+            <span class="s0"># SOA is parsed.</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl </span><span class="s4">= </span><span class="s1">rd</span><span class="s4">.</span><span class="s1">minimum</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known </span><span class="s4">= </span><span class="s3">True</span>
+            <span class="s3">if </span><span class="s1">ttl </span><span class="s3">is None</span><span class="s4">:</span>
+                <span class="s0"># if we didn't have a TTL on the SOA, set it!</span>
+                <span class="s1">ttl </span><span class="s4">= </span><span class="s1">rd</span><span class="s4">.</span><span class="s1">minimum</span>
+
+        <span class="s0"># TTL check.  We had to wait until now to do this as the SOA RR's</span>
+        <span class="s0"># own TTL can be inferred from its minimum.</span>
+        <span class="s3">if </span><span class="s1">ttl </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;Missing default TTL value&quot;</span><span class="s4">)</span>
+
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">txn</span><span class="s4">.</span><span class="s1">add</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">ttl</span><span class="s4">, </span><span class="s1">rd</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_parse_modify</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">side</span><span class="s4">: </span><span class="s1">str</span><span class="s4">) </span><span class="s1">-&gt; Tuple</span><span class="s4">[</span><span class="s1">str</span><span class="s4">, </span><span class="s1">str</span><span class="s4">, </span><span class="s1">int</span><span class="s4">, </span><span class="s1">int</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]:</span>
+        <span class="s0"># Here we catch everything in '{' '}' in a group so we can replace it</span>
+        <span class="s0"># with ''.</span>
+        <span class="s1">is_generate1 </span><span class="s4">= </span><span class="s1">re</span><span class="s4">.</span><span class="s1">compile</span><span class="s4">(</span><span class="s5">r&quot;^.*\$({(\+|-?)(\d+),(\d+),(.)}).*$&quot;</span><span class="s4">)</span>
+        <span class="s1">is_generate2 </span><span class="s4">= </span><span class="s1">re</span><span class="s4">.</span><span class="s1">compile</span><span class="s4">(</span><span class="s5">r&quot;^.*\$({(\+|-?)(\d+)}).*$&quot;</span><span class="s4">)</span>
+        <span class="s1">is_generate3 </span><span class="s4">= </span><span class="s1">re</span><span class="s4">.</span><span class="s1">compile</span><span class="s4">(</span><span class="s5">r&quot;^.*\$({(\+|-?)(\d+),(\d+)}).*$&quot;</span><span class="s4">)</span>
+        <span class="s0"># Sometimes there are modifiers in the hostname. These come after</span>
+        <span class="s0"># the dollar sign. They are in the form: ${offset[,width[,base]]}.</span>
+        <span class="s0"># Make names</span>
+        <span class="s1">mod </span><span class="s4">= </span><span class="s5">&quot;&quot;</span>
+        <span class="s1">sign </span><span class="s4">= </span><span class="s5">&quot;+&quot;</span>
+        <span class="s1">offset </span><span class="s4">= </span><span class="s5">&quot;0&quot;</span>
+        <span class="s1">width </span><span class="s4">= </span><span class="s5">&quot;0&quot;</span>
+        <span class="s1">base </span><span class="s4">= </span><span class="s5">&quot;d&quot;</span>
+        <span class="s1">g1 </span><span class="s4">= </span><span class="s1">is_generate1</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">side</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">g1</span><span class="s4">:</span>
+            <span class="s1">mod</span><span class="s4">, </span><span class="s1">sign</span><span class="s4">, </span><span class="s1">offset</span><span class="s4">, </span><span class="s1">width</span><span class="s4">, </span><span class="s1">base </span><span class="s4">= </span><span class="s1">g1</span><span class="s4">.</span><span class="s1">groups</span><span class="s4">()</span>
+            <span class="s3">if </span><span class="s1">sign </span><span class="s4">== </span><span class="s5">&quot;&quot;</span><span class="s4">:</span>
+                <span class="s1">sign </span><span class="s4">= </span><span class="s5">&quot;+&quot;</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">g2 </span><span class="s4">= </span><span class="s1">is_generate2</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">side</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">g2</span><span class="s4">:</span>
+                <span class="s1">mod</span><span class="s4">, </span><span class="s1">sign</span><span class="s4">, </span><span class="s1">offset </span><span class="s4">= </span><span class="s1">g2</span><span class="s4">.</span><span class="s1">groups</span><span class="s4">()</span>
+                <span class="s3">if </span><span class="s1">sign </span><span class="s4">== </span><span class="s5">&quot;&quot;</span><span class="s4">:</span>
+                    <span class="s1">sign </span><span class="s4">= </span><span class="s5">&quot;+&quot;</span>
+                <span class="s1">width </span><span class="s4">= </span><span class="s5">&quot;0&quot;</span>
+                <span class="s1">base </span><span class="s4">= </span><span class="s5">&quot;d&quot;</span>
+            <span class="s3">else</span><span class="s4">:</span>
+                <span class="s1">g3 </span><span class="s4">= </span><span class="s1">is_generate3</span><span class="s4">.</span><span class="s1">match</span><span class="s4">(</span><span class="s1">side</span><span class="s4">)</span>
+                <span class="s3">if </span><span class="s1">g3</span><span class="s4">:</span>
+                    <span class="s1">mod</span><span class="s4">, </span><span class="s1">sign</span><span class="s4">, </span><span class="s1">offset</span><span class="s4">, </span><span class="s1">width </span><span class="s4">= </span><span class="s1">g3</span><span class="s4">.</span><span class="s1">groups</span><span class="s4">()</span>
+                    <span class="s3">if </span><span class="s1">sign </span><span class="s4">== </span><span class="s5">&quot;&quot;</span><span class="s4">:</span>
+                        <span class="s1">sign </span><span class="s4">= </span><span class="s5">&quot;+&quot;</span>
+                    <span class="s1">base </span><span class="s4">= </span><span class="s5">&quot;d&quot;</span>
+
+        <span class="s1">ioffset </span><span class="s4">= </span><span class="s1">int</span><span class="s4">(</span><span class="s1">offset</span><span class="s4">)</span>
+        <span class="s1">iwidth </span><span class="s4">= </span><span class="s1">int</span><span class="s4">(</span><span class="s1">width</span><span class="s4">)</span>
+
+        <span class="s3">if </span><span class="s1">sign </span><span class="s3">not in </span><span class="s4">[</span><span class="s5">&quot;+&quot;</span><span class="s4">, </span><span class="s5">&quot;-&quot;</span><span class="s4">]:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">f&quot;invalid offset sign </span><span class="s3">{</span><span class="s1">sign</span><span class="s3">}</span><span class="s5">&quot;</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">base </span><span class="s3">not in </span><span class="s4">[</span><span class="s5">&quot;d&quot;</span><span class="s4">, </span><span class="s5">&quot;o&quot;</span><span class="s4">, </span><span class="s5">&quot;x&quot;</span><span class="s4">, </span><span class="s5">&quot;X&quot;</span><span class="s4">, </span><span class="s5">&quot;n&quot;</span><span class="s4">, </span><span class="s5">&quot;N&quot;</span><span class="s4">]:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">f&quot;invalid type </span><span class="s3">{</span><span class="s1">base</span><span class="s3">}</span><span class="s5">&quot;</span><span class="s4">)</span>
+
+        <span class="s3">return </span><span class="s1">mod</span><span class="s4">, </span><span class="s1">sign</span><span class="s4">, </span><span class="s1">ioffset</span><span class="s4">, </span><span class="s1">iwidth</span><span class="s4">, </span><span class="s1">base</span>
+
+    <span class="s3">def </span><span class="s1">_generate_line</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s0"># range lhs [ttl] [class] type rhs [ comment ]</span>
+        <span class="s2">&quot;&quot;&quot;Process one line containing the GENERATE statement from a DNS 
+        zone file.&quot;&quot;&quot;</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin </span><span class="s3">is None</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">UnknownOrigin</span>
+
+        <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+        <span class="s0"># Range (required)</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">start</span><span class="s4">, </span><span class="s1">stop</span><span class="s4">, </span><span class="s1">step </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">grange</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+            <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+
+        <span class="s0"># lhs (required)</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">lhs </span><span class="s4">= </span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+            <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+
+        <span class="s0"># TTL</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">ttl </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl </span><span class="s4">= </span><span class="s1">ttl</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known </span><span class="s4">= </span><span class="s3">True</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+            <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">BadTTL</span><span class="s4">:</span>
+            <span class="s3">if not </span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known </span><span class="s3">or </span><span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known</span><span class="s4">):</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;Missing default TTL value&quot;</span><span class="s4">)</span>
+            <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known</span><span class="s4">:</span>
+                <span class="s1">ttl </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl</span>
+            <span class="s3">elif </span><span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known</span><span class="s4">:</span>
+                <span class="s1">ttl </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl</span>
+        <span class="s0"># Class</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+            <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_rdclass</span>
+        <span class="s3">if </span><span class="s1">rdclass </span><span class="s4">!= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_rdclass</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;RR class is not zone's class&quot;</span><span class="s4">)</span>
+        <span class="s0"># Type</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+            <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+            <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span>
+        <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">f&quot;unknown rdatatype '</span><span class="s3">{</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s3">}</span><span class="s5">'&quot;</span><span class="s4">)</span>
+
+        <span class="s0"># rhs (required)</span>
+        <span class="s1">rhs </span><span class="s4">= </span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span>
+
+        <span class="s3">def </span><span class="s1">_calculate_index</span><span class="s4">(</span><span class="s1">counter</span><span class="s4">: </span><span class="s1">int</span><span class="s4">, </span><span class="s1">offset_sign</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, </span><span class="s1">offset</span><span class="s4">: </span><span class="s1">int</span><span class="s4">) </span><span class="s1">-&gt; int</span><span class="s4">:</span>
+            <span class="s2">&quot;&quot;&quot;Calculate the index from the counter and offset.&quot;&quot;&quot;</span>
+            <span class="s3">if </span><span class="s1">offset_sign </span><span class="s4">== </span><span class="s5">&quot;-&quot;</span><span class="s4">:</span>
+                <span class="s1">offset </span><span class="s4">*= -</span><span class="s6">1</span>
+            <span class="s3">return </span><span class="s1">counter </span><span class="s4">+ </span><span class="s1">offset</span>
+
+        <span class="s3">def </span><span class="s1">_format_index</span><span class="s4">(</span><span class="s1">index</span><span class="s4">: </span><span class="s1">int</span><span class="s4">, </span><span class="s1">base</span><span class="s4">: </span><span class="s1">str</span><span class="s4">, </span><span class="s1">width</span><span class="s4">: </span><span class="s1">int</span><span class="s4">) </span><span class="s1">-&gt; str</span><span class="s4">:</span>
+            <span class="s2">&quot;&quot;&quot;Format the index with the given base, and zero-fill it 
+            to the given width.&quot;&quot;&quot;</span>
+            <span class="s3">if </span><span class="s1">base </span><span class="s3">in </span><span class="s4">[</span><span class="s5">&quot;d&quot;</span><span class="s4">, </span><span class="s5">&quot;o&quot;</span><span class="s4">, </span><span class="s5">&quot;x&quot;</span><span class="s4">, </span><span class="s5">&quot;X&quot;</span><span class="s4">]:</span>
+                <span class="s3">return </span><span class="s1">format</span><span class="s4">(</span><span class="s1">index</span><span class="s4">, </span><span class="s1">base</span><span class="s4">).</span><span class="s1">zfill</span><span class="s4">(</span><span class="s1">width</span><span class="s4">)</span>
+
+            <span class="s0"># base can only be n or N here</span>
+            <span class="s1">hexa </span><span class="s4">= </span><span class="s1">_format_index</span><span class="s4">(</span><span class="s1">index</span><span class="s4">, </span><span class="s5">&quot;x&quot;</span><span class="s4">, </span><span class="s1">width</span><span class="s4">)</span>
+            <span class="s1">nibbles </span><span class="s4">= </span><span class="s5">&quot;.&quot;</span><span class="s4">.</span><span class="s1">join</span><span class="s4">(</span><span class="s1">hexa</span><span class="s4">[::-</span><span class="s6">1</span><span class="s4">])[:</span><span class="s1">width</span><span class="s4">]</span>
+            <span class="s3">if </span><span class="s1">base </span><span class="s4">== </span><span class="s5">&quot;N&quot;</span><span class="s4">:</span>
+                <span class="s1">nibbles </span><span class="s4">= </span><span class="s1">nibbles</span><span class="s4">.</span><span class="s1">upper</span><span class="s4">()</span>
+            <span class="s3">return </span><span class="s1">nibbles</span>
+
+        <span class="s1">lmod</span><span class="s4">, </span><span class="s1">lsign</span><span class="s4">, </span><span class="s1">loffset</span><span class="s4">, </span><span class="s1">lwidth</span><span class="s4">, </span><span class="s1">lbase </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_parse_modify</span><span class="s4">(</span><span class="s1">lhs</span><span class="s4">)</span>
+        <span class="s1">rmod</span><span class="s4">, </span><span class="s1">rsign</span><span class="s4">, </span><span class="s1">roffset</span><span class="s4">, </span><span class="s1">rwidth</span><span class="s4">, </span><span class="s1">rbase </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_parse_modify</span><span class="s4">(</span><span class="s1">rhs</span><span class="s4">)</span>
+        <span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">range</span><span class="s4">(</span><span class="s1">start</span><span class="s4">, </span><span class="s1">stop </span><span class="s4">+ </span><span class="s6">1</span><span class="s4">, </span><span class="s1">step</span><span class="s4">):</span>
+            <span class="s0"># +1 because bind is inclusive and python is exclusive</span>
+
+            <span class="s1">lindex </span><span class="s4">= </span><span class="s1">_calculate_index</span><span class="s4">(</span><span class="s1">i</span><span class="s4">, </span><span class="s1">lsign</span><span class="s4">, </span><span class="s1">loffset</span><span class="s4">)</span>
+            <span class="s1">rindex </span><span class="s4">= </span><span class="s1">_calculate_index</span><span class="s4">(</span><span class="s1">i</span><span class="s4">, </span><span class="s1">rsign</span><span class="s4">, </span><span class="s1">roffset</span><span class="s4">)</span>
+
+            <span class="s1">lzfindex </span><span class="s4">= </span><span class="s1">_format_index</span><span class="s4">(</span><span class="s1">lindex</span><span class="s4">, </span><span class="s1">lbase</span><span class="s4">, </span><span class="s1">lwidth</span><span class="s4">)</span>
+            <span class="s1">rzfindex </span><span class="s4">= </span><span class="s1">_format_index</span><span class="s4">(</span><span class="s1">rindex</span><span class="s4">, </span><span class="s1">rbase</span><span class="s4">, </span><span class="s1">rwidth</span><span class="s4">)</span>
+
+            <span class="s1">name </span><span class="s4">= </span><span class="s1">lhs</span><span class="s4">.</span><span class="s1">replace</span><span class="s4">(</span><span class="s5">f&quot;$</span><span class="s3">{</span><span class="s1">lmod</span><span class="s3">}</span><span class="s5">&quot;</span><span class="s4">, </span><span class="s1">lzfindex</span><span class="s4">)</span>
+            <span class="s1">rdata </span><span class="s4">= </span><span class="s1">rhs</span><span class="s4">.</span><span class="s1">replace</span><span class="s4">(</span><span class="s5">f&quot;$</span><span class="s3">{</span><span class="s1">rmod</span><span class="s3">}</span><span class="s5">&quot;</span><span class="s4">, </span><span class="s1">rzfindex</span><span class="s4">)</span>
+
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_name </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span>
+                <span class="s1">name</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">idna_codec</span>
+            <span class="s4">)</span>
+            <span class="s1">name </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">last_name</span>
+            <span class="s3">if not </span><span class="s1">name</span><span class="s4">.</span><span class="s1">is_subdomain</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span><span class="s4">):</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">_eat_line</span><span class="s4">()</span>
+                <span class="s3">return</span>
+            <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">:</span>
+                <span class="s1">name </span><span class="s4">= </span><span class="s1">name</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span><span class="s4">)</span>
+
+            <span class="s3">try</span><span class="s4">:</span>
+                <span class="s1">rd </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdata</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span>
+                    <span class="s1">rdclass</span><span class="s4">,</span>
+                    <span class="s1">rdtype</span><span class="s4">,</span>
+                    <span class="s1">rdata</span><span class="s4">,</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">,</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">,</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin</span><span class="s4">,</span>
+                <span class="s4">)</span>
+            <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">:</span>
+                <span class="s0"># Catch and reraise.</span>
+                <span class="s3">raise</span>
+            <span class="s3">except </span><span class="s1">Exception</span><span class="s4">:</span>
+                <span class="s0"># All exceptions that occur in the processing of rdata</span>
+                <span class="s0"># are treated as syntax errors.  This is not strictly</span>
+                <span class="s0"># correct, but it is correct almost all of the time.</span>
+                <span class="s0"># We convert them to syntax errors so that we can emit</span>
+                <span class="s0"># helpful filename:line info.</span>
+                <span class="s4">(</span><span class="s1">ty</span><span class="s4">, </span><span class="s1">va</span><span class="s4">) = </span><span class="s1">sys</span><span class="s4">.</span><span class="s1">exc_info</span><span class="s4">()[:</span><span class="s6">2</span><span class="s4">]</span>
+                <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span>
+                    <span class="s5">f&quot;caught exception </span><span class="s3">{</span><span class="s1">str</span><span class="s4">(</span><span class="s1">ty</span><span class="s4">)</span><span class="s3">}</span><span class="s5">: </span><span class="s3">{</span><span class="s1">str</span><span class="s4">(</span><span class="s1">va</span><span class="s4">)</span><span class="s3">}</span><span class="s5">&quot;</span>
+                <span class="s4">)</span>
+
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">txn</span><span class="s4">.</span><span class="s1">add</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">ttl</span><span class="s4">, </span><span class="s1">rd</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">read</span><span class="s4">(</span><span class="s1">self</span><span class="s4">) </span><span class="s1">-&gt; </span><span class="s3">None</span><span class="s4">:</span>
+        <span class="s2">&quot;&quot;&quot;Read a DNS zone file and build a zone object. 
+ 
+        @raises dns.zone.NoSOA: No SOA RR was found at the zone origin 
+        @raises dns.zone.NoNS: No NS RRset was found at the zone origin 
+        &quot;&quot;&quot;</span>
+
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s3">while </span><span class="s6">1</span><span class="s4">:</span>
+                <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">(</span><span class="s3">True</span><span class="s4">, </span><span class="s3">True</span><span class="s4">)</span>
+                <span class="s3">if </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_eof</span><span class="s4">():</span>
+                    <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_file </span><span class="s3">is not None</span><span class="s4">:</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">current_file</span><span class="s4">.</span><span class="s1">close</span><span class="s4">()</span>
+                    <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">saved_state</span><span class="s4">) &gt; </span><span class="s6">0</span><span class="s4">:</span>
+                        <span class="s4">(</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">,</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">,</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_name</span><span class="s4">,</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">current_file</span><span class="s4">,</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl</span><span class="s4">,</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known</span><span class="s4">,</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl</span><span class="s4">,</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known</span><span class="s4">,</span>
+                        <span class="s4">) = </span><span class="s1">self</span><span class="s4">.</span><span class="s1">saved_state</span><span class="s4">.</span><span class="s1">pop</span><span class="s4">(-</span><span class="s6">1</span><span class="s4">)</span>
+                        <span class="s3">continue</span>
+                    <span class="s3">break</span>
+                <span class="s3">elif </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_eol</span><span class="s4">():</span>
+                    <span class="s3">continue</span>
+                <span class="s3">elif </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_comment</span><span class="s4">():</span>
+                    <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_eol</span><span class="s4">()</span>
+                    <span class="s3">continue</span>
+                <span class="s3">elif </span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">[</span><span class="s6">0</span><span class="s4">] == </span><span class="s5">&quot;$&quot; </span><span class="s3">and </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">allowed_directives</span><span class="s4">) &gt; </span><span class="s6">0</span><span class="s4">:</span>
+                    <span class="s0"># Note that we only run directive processing code if at least</span>
+                    <span class="s0"># one directive is allowed in order to be backwards compatible</span>
+                    <span class="s1">c </span><span class="s4">= </span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">.</span><span class="s1">upper</span><span class="s4">()</span>
+                    <span class="s3">if </span><span class="s1">c </span><span class="s3">not in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">allowed_directives</span><span class="s4">:</span>
+                        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span>
+                            <span class="s5">f&quot;zone file directive '</span><span class="s3">{</span><span class="s1">c</span><span class="s3">}</span><span class="s5">' is not allowed&quot;</span>
+                        <span class="s4">)</span>
+                    <span class="s3">if </span><span class="s1">c </span><span class="s4">== </span><span class="s5">&quot;$TTL&quot;</span><span class="s4">:</span>
+                        <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+                        <span class="s3">if not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+                            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;bad $TTL&quot;</span><span class="s4">)</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">)</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known </span><span class="s4">= </span><span class="s3">True</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_eol</span><span class="s4">()</span>
+                    <span class="s3">elif </span><span class="s1">c </span><span class="s4">== </span><span class="s5">&quot;$ORIGIN&quot;</span><span class="s4">:</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_name</span><span class="s4">()</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_eol</span><span class="s4">()</span>
+                        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin </span><span class="s3">is None</span><span class="s4">:</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">zone_origin </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">txn</span><span class="s4">.</span><span class="s1">_set_origin</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">)</span>
+                    <span class="s3">elif </span><span class="s1">c </span><span class="s4">== </span><span class="s5">&quot;$INCLUDE&quot;</span><span class="s4">:</span>
+                        <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+                        <span class="s1">filename </span><span class="s4">= </span><span class="s1">token</span><span class="s4">.</span><span class="s1">value</span>
+                        <span class="s1">token </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get</span><span class="s4">()</span>
+                        <span class="s1">new_origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">]</span>
+                        <span class="s3">if </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_identifier</span><span class="s4">():</span>
+                            <span class="s1">new_origin </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span>
+                                <span class="s1">token</span><span class="s4">.</span><span class="s1">value</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">idna_codec</span>
+                            <span class="s4">)</span>
+                            <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">get_eol</span><span class="s4">()</span>
+                        <span class="s3">elif not </span><span class="s1">token</span><span class="s4">.</span><span class="s1">is_eol_or_eof</span><span class="s4">():</span>
+                            <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span><span class="s5">&quot;bad origin in $INCLUDE&quot;</span><span class="s4">)</span>
+                        <span class="s3">else</span><span class="s4">:</span>
+                            <span class="s1">new_origin </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">saved_state</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span>
+                            <span class="s4">(</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">,</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin</span><span class="s4">,</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_name</span><span class="s4">,</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">current_file</span><span class="s4">,</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl</span><span class="s4">,</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">last_ttl_known</span><span class="s4">,</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl</span><span class="s4">,</span>
+                                <span class="s1">self</span><span class="s4">.</span><span class="s1">default_ttl_known</span><span class="s4">,</span>
+                            <span class="s4">)</span>
+                        <span class="s4">)</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">current_file </span><span class="s4">= </span><span class="s1">open</span><span class="s4">(</span><span class="s1">filename</span><span class="s4">)</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">tok </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span><span class="s4">.</span><span class="s1">Tokenizer</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">current_file</span><span class="s4">, </span><span class="s1">filename</span><span class="s4">)</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">current_origin </span><span class="s4">= </span><span class="s1">new_origin</span>
+                    <span class="s3">elif </span><span class="s1">c </span><span class="s4">== </span><span class="s5">&quot;$GENERATE&quot;</span><span class="s4">:</span>
+                        <span class="s1">self</span><span class="s4">.</span><span class="s1">_generate_line</span><span class="s4">()</span>
+                    <span class="s3">else</span><span class="s4">:</span>
+                        <span class="s3">raise </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span>
+                            <span class="s5">f&quot;Unknown zone file directive '</span><span class="s3">{</span><span class="s1">c</span><span class="s3">}</span><span class="s5">'&quot;</span>
+                        <span class="s4">)</span>
+                    <span class="s3">continue</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">unget</span><span class="s4">(</span><span class="s1">token</span><span class="s4">)</span>
+                <span class="s1">self</span><span class="s4">.</span><span class="s1">_rr_line</span><span class="s4">()</span>
+        <span class="s3">except </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError </span><span class="s3">as </span><span class="s1">detail</span><span class="s4">:</span>
+            <span class="s4">(</span><span class="s1">filename</span><span class="s4">, </span><span class="s1">line_number</span><span class="s4">) = </span><span class="s1">self</span><span class="s4">.</span><span class="s1">tok</span><span class="s4">.</span><span class="s1">where</span><span class="s4">()</span>
+            <span class="s3">if </span><span class="s1">detail </span><span class="s3">is None</span><span class="s4">:</span>
+                <span class="s1">detail </span><span class="s4">= </span><span class="s5">&quot;syntax error&quot;</span>
+            <span class="s1">ex </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">exception</span><span class="s4">.</span><span class="s1">SyntaxError</span><span class="s4">(</span>
+                <span class="s5">&quot;%s:%d: %s&quot; </span><span class="s4">% (</span><span class="s1">filename</span><span class="s4">, </span><span class="s1">line_number</span><span class="s4">, </span><span class="s1">detail</span><span class="s4">)</span>
+            <span class="s4">)</span>
+            <span class="s1">tb </span><span class="s4">= </span><span class="s1">sys</span><span class="s4">.</span><span class="s1">exc_info</span><span class="s4">()[</span><span class="s6">2</span><span class="s4">]</span>
+            <span class="s3">raise </span><span class="s1">ex</span><span class="s4">.</span><span class="s1">with_traceback</span><span class="s4">(</span><span class="s1">tb</span><span class="s4">) </span><span class="s3">from None</span>
+
+
+<span class="s3">class </span><span class="s1">RRsetsReaderTransaction</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">transaction</span><span class="s4">.</span><span class="s1">Transaction</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">manager</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">, </span><span class="s1">read_only</span><span class="s4">):</span>
+        <span class="s3">assert not </span><span class="s1">read_only</span>
+        <span class="s1">super</span><span class="s4">().</span><span class="s1">__init__</span><span class="s4">(</span><span class="s1">manager</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">, </span><span class="s1">read_only</span><span class="s4">)</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets </span><span class="s4">= {}</span>
+
+    <span class="s3">def </span><span class="s1">_get_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">.</span><span class="s1">get</span><span class="s4">((</span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">))</span>
+
+    <span class="s3">def </span><span class="s1">_get_node</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">):</span>
+        <span class="s1">rdatasets </span><span class="s4">= []</span>
+        <span class="s3">for </span><span class="s4">(</span><span class="s1">rdataset_name</span><span class="s4">, </span><span class="s1">_</span><span class="s4">, </span><span class="s1">_</span><span class="s4">), </span><span class="s1">rdataset </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">.</span><span class="s1">items</span><span class="s4">():</span>
+            <span class="s3">if </span><span class="s1">name </span><span class="s4">== </span><span class="s1">rdataset_name</span><span class="s4">:</span>
+                <span class="s1">rdatasets</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">rdatasets</span><span class="s4">) == </span><span class="s6">0</span><span class="s4">:</span>
+            <span class="s3">return None</span>
+        <span class="s1">node </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">node</span><span class="s4">.</span><span class="s1">Node</span><span class="s4">()</span>
+        <span class="s1">node</span><span class="s4">.</span><span class="s1">rdatasets </span><span class="s4">= </span><span class="s1">rdatasets</span>
+        <span class="s3">return </span><span class="s1">node</span>
+
+    <span class="s3">def </span><span class="s1">_put_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">[(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">covers</span><span class="s4">)] = </span><span class="s1">rdataset</span>
+
+    <span class="s3">def </span><span class="s1">_delete_name</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">):</span>
+        <span class="s0"># First remove any changes involving the name</span>
+        <span class="s1">remove </span><span class="s4">= []</span>
+        <span class="s3">for </span><span class="s1">key </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">key</span><span class="s4">[</span><span class="s6">0</span><span class="s4">] == </span><span class="s1">name</span><span class="s4">:</span>
+                <span class="s1">remove</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">key</span><span class="s4">)</span>
+        <span class="s3">if </span><span class="s1">len</span><span class="s4">(</span><span class="s1">remove</span><span class="s4">) &gt; </span><span class="s6">0</span><span class="s4">:</span>
+            <span class="s3">for </span><span class="s1">key </span><span class="s3">in </span><span class="s1">remove</span><span class="s4">:</span>
+                <span class="s3">del </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">[</span><span class="s1">key</span><span class="s4">]</span>
+
+    <span class="s3">def </span><span class="s1">_delete_rdataset</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">):</span>
+        <span class="s3">try</span><span class="s4">:</span>
+            <span class="s3">del </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">[(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">covers</span><span class="s4">)]</span>
+        <span class="s3">except </span><span class="s1">KeyError</span><span class="s4">:</span>
+            <span class="s3">pass</span>
+
+    <span class="s3">def </span><span class="s1">_name_exists</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">name</span><span class="s4">):</span>
+        <span class="s3">for </span><span class="s1">n</span><span class="s4">, </span><span class="s1">_</span><span class="s4">, </span><span class="s1">_ </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">:</span>
+            <span class="s3">if </span><span class="s1">n </span><span class="s4">== </span><span class="s1">name</span><span class="s4">:</span>
+                <span class="s3">return True</span>
+        <span class="s3">return False</span>
+
+    <span class="s3">def </span><span class="s1">_changed</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">len</span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">) &gt; </span><span class="s6">0</span>
+
+    <span class="s3">def </span><span class="s1">_end_transaction</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">commit</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">commit </span><span class="s3">and </span><span class="s1">self</span><span class="s4">.</span><span class="s1">_changed</span><span class="s4">():</span>
+            <span class="s1">rrsets </span><span class="s4">= []</span>
+            <span class="s3">for </span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">_</span><span class="s4">, </span><span class="s1">_</span><span class="s4">), </span><span class="s1">rdataset </span><span class="s3">in </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdatasets</span><span class="s4">.</span><span class="s1">items</span><span class="s4">():</span>
+                <span class="s1">rrset </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rrset</span><span class="s4">.</span><span class="s1">RRset</span><span class="s4">(</span>
+                    <span class="s1">name</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">rdclass</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">rdtype</span><span class="s4">, </span><span class="s1">rdataset</span><span class="s4">.</span><span class="s1">covers</span>
+                <span class="s4">)</span>
+                <span class="s1">rrset</span><span class="s4">.</span><span class="s1">update</span><span class="s4">(</span><span class="s1">rdataset</span><span class="s4">)</span>
+                <span class="s1">rrsets</span><span class="s4">.</span><span class="s1">append</span><span class="s4">(</span><span class="s1">rrset</span><span class="s4">)</span>
+            <span class="s1">self</span><span class="s4">.</span><span class="s1">manager</span><span class="s4">.</span><span class="s1">set_rrsets</span><span class="s4">(</span><span class="s1">rrsets</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">_set_origin</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">):</span>
+        <span class="s3">pass</span>
+
+    <span class="s3">def </span><span class="s1">_iterate_rdatasets</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s3">def </span><span class="s1">_iterate_names</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError  </span><span class="s0"># pragma: no cover</span>
+
+
+<span class="s3">class </span><span class="s1">RRSetsReaderManager</span><span class="s4">(</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">transaction</span><span class="s4">.</span><span class="s1">TransactionManager</span><span class="s4">):</span>
+    <span class="s3">def </span><span class="s1">__init__</span><span class="s4">(</span>
+        <span class="s1">self</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">=</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">=</span><span class="s3">False</span><span class="s4">, </span><span class="s1">rdclass</span><span class="s4">=</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span>
+    <span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">origin </span><span class="s4">= </span><span class="s1">origin</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">relativize </span><span class="s4">= </span><span class="s1">relativize</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass </span><span class="s4">= </span><span class="s1">rdclass</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rrsets </span><span class="s4">= []</span>
+
+    <span class="s3">def </span><span class="s1">reader</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):  </span><span class="s0"># pragma: no cover</span>
+        <span class="s3">raise </span><span class="s1">NotImplementedError</span>
+
+    <span class="s3">def </span><span class="s1">writer</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">replacement</span><span class="s4">=</span><span class="s3">False</span><span class="s4">):</span>
+        <span class="s3">assert </span><span class="s1">replacement </span><span class="s3">is True</span>
+        <span class="s3">return </span><span class="s1">RRsetsReaderTransaction</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s3">True</span><span class="s4">, </span><span class="s3">False</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">get_class</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">return </span><span class="s1">self</span><span class="s4">.</span><span class="s1">rdclass</span>
+
+    <span class="s3">def </span><span class="s1">origin_information</span><span class="s4">(</span><span class="s1">self</span><span class="s4">):</span>
+        <span class="s3">if </span><span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">:</span>
+            <span class="s1">effective </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">empty</span>
+        <span class="s3">else</span><span class="s4">:</span>
+            <span class="s1">effective </span><span class="s4">= </span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin</span>
+        <span class="s3">return </span><span class="s4">(</span><span class="s1">self</span><span class="s4">.</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">self</span><span class="s4">.</span><span class="s1">relativize</span><span class="s4">, </span><span class="s1">effective</span><span class="s4">)</span>
+
+    <span class="s3">def </span><span class="s1">set_rrsets</span><span class="s4">(</span><span class="s1">self</span><span class="s4">, </span><span class="s1">rrsets</span><span class="s4">):</span>
+        <span class="s1">self</span><span class="s4">.</span><span class="s1">rrsets </span><span class="s4">= </span><span class="s1">rrsets</span>
+
+
+<span class="s3">def </span><span class="s1">read_rrsets</span><span class="s4">(</span>
+    <span class="s1">text</span><span class="s4">: </span><span class="s1">Any</span><span class="s4">,</span>
+    <span class="s1">name</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">ttl</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">int</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">rdclass</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+    <span class="s1">default_rdclass</span><span class="s4">: </span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">, </span><span class="s1">str</span><span class="s4">] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">IN</span><span class="s4">,</span>
+    <span class="s1">rdtype</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">default_ttl</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">int</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">idna_codec</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">IDNACodec</span><span class="s4">] = </span><span class="s3">None</span><span class="s4">,</span>
+    <span class="s1">origin</span><span class="s4">: </span><span class="s1">Optional</span><span class="s4">[</span><span class="s1">Union</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">Name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">]] = </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">,</span>
+    <span class="s1">relativize</span><span class="s4">: </span><span class="s1">bool </span><span class="s4">= </span><span class="s3">False</span><span class="s4">,</span>
+<span class="s4">) </span><span class="s1">-&gt; List</span><span class="s4">[</span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rrset</span><span class="s4">.</span><span class="s1">RRset</span><span class="s4">]:</span>
+    <span class="s2">&quot;&quot;&quot;Read one or more rrsets from the specified text, possibly subject 
+    to restrictions. 
+ 
+    *text*, a file object or a string, is the input to process. 
+ 
+    *name*, a string, ``dns.name.Name``, or ``None``, is the owner name of 
+    the rrset.  If not ``None``, then the owner name is &quot;forced&quot;, and the 
+    input must not specify an owner name.  If ``None``, then any owner names 
+    are allowed and must be present in the input. 
+ 
+    *ttl*, an ``int``, string, or None.  If not ``None``, the the TTL is 
+    forced to be the specified value and the input must not specify a TTL. 
+    If ``None``, then a TTL may be specified in the input.  If it is not 
+    specified, then the *default_ttl* will be used. 
+ 
+    *rdclass*, a ``dns.rdataclass.RdataClass``, string, or ``None``.  If 
+    not ``None``, then the class is forced to the specified value, and the 
+    input must not specify a class.  If ``None``, then the input may specify 
+    a class that matches *default_rdclass*.  Note that it is not possible to 
+    return rrsets with differing classes; specifying ``None`` for the class 
+    simply allows the user to optionally type a class as that may be convenient 
+    when cutting and pasting. 
+ 
+    *default_rdclass*, a ``dns.rdataclass.RdataClass`` or string.  The class 
+    of the returned rrsets. 
+ 
+    *rdtype*, a ``dns.rdatatype.RdataType``, string, or ``None``.  If not 
+    ``None``, then the type is forced to the specified value, and the 
+    input must not specify a type.  If ``None``, then a type must be present 
+    for each RR. 
+ 
+    *default_ttl*, an ``int``, string, or ``None``.  If not ``None``, then if 
+    the TTL is not forced and is not specified, then this value will be used. 
+    if ``None``, then if the TTL is not forced an error will occur if the TTL 
+    is not specified. 
+ 
+    *idna_codec*, a ``dns.name.IDNACodec``, specifies the IDNA 
+    encoder/decoder.  If ``None``, the default IDNA 2003 encoder/decoder 
+    is used.  Note that codecs only apply to the owner name; dnspython does 
+    not do IDNA for names in rdata, as there is no IDNA zonefile format. 
+ 
+    *origin*, a string, ``dns.name.Name``, or ``None``, is the origin for any 
+    relative names in the input, and also the origin to relativize to if 
+    *relativize* is ``True``. 
+ 
+    *relativize*, a bool.  If ``True``, names are relativized to the *origin*; 
+    if ``False`` then any relative names in the input are made absolute by 
+    appending the *origin*. 
+    &quot;&quot;&quot;</span>
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+        <span class="s1">origin </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">root</span><span class="s4">, </span><span class="s1">idna_codec</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+        <span class="s1">name </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">name</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">name</span><span class="s4">, </span><span class="s1">origin</span><span class="s4">, </span><span class="s1">idna_codec</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">ttl</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+        <span class="s1">ttl </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">ttl</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">isinstance</span><span class="s4">(</span><span class="s1">default_ttl</span><span class="s4">, </span><span class="s1">str</span><span class="s4">):</span>
+        <span class="s1">default_ttl </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">ttl</span><span class="s4">.</span><span class="s1">from_text</span><span class="s4">(</span><span class="s1">default_ttl</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">rdclass </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s1">rdclass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">rdclass</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">rdclass </span><span class="s4">= </span><span class="s3">None</span>
+    <span class="s1">default_rdclass </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdataclass</span><span class="s4">.</span><span class="s1">RdataClass</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">default_rdclass</span><span class="s4">)</span>
+    <span class="s3">if </span><span class="s1">rdtype </span><span class="s3">is not None</span><span class="s4">:</span>
+        <span class="s1">rdtype </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">rdatatype</span><span class="s4">.</span><span class="s1">RdataType</span><span class="s4">.</span><span class="s1">make</span><span class="s4">(</span><span class="s1">rdtype</span><span class="s4">)</span>
+    <span class="s3">else</span><span class="s4">:</span>
+        <span class="s1">rdtype </span><span class="s4">= </span><span class="s3">None</span>
+    <span class="s1">manager </span><span class="s4">= </span><span class="s1">RRSetsReaderManager</span><span class="s4">(</span><span class="s1">origin</span><span class="s4">, </span><span class="s1">relativize</span><span class="s4">, </span><span class="s1">default_rdclass</span><span class="s4">)</span>
+    <span class="s3">with </span><span class="s1">manager</span><span class="s4">.</span><span class="s1">writer</span><span class="s4">(</span><span class="s3">True</span><span class="s4">) </span><span class="s3">as </span><span class="s1">txn</span><span class="s4">:</span>
+        <span class="s1">tok </span><span class="s4">= </span><span class="s1">dns</span><span class="s4">.</span><span class="s1">tokenizer</span><span class="s4">.</span><span class="s1">Tokenizer</span><span class="s4">(</span><span class="s1">text</span><span class="s4">, </span><span class="s5">&quot;&lt;input&gt;&quot;</span><span class="s4">, </span><span class="s1">idna_codec</span><span class="s4">=</span><span class="s1">idna_codec</span><span class="s4">)</span>
+        <span class="s1">reader </span><span class="s4">= </span><span class="s1">Reader</span><span class="s4">(</span>
+            <span class="s1">tok</span><span class="s4">,</span>
+            <span class="s1">default_rdclass</span><span class="s4">,</span>
+            <span class="s1">txn</span><span class="s4">,</span>
+            <span class="s1">allow_directives</span><span class="s4">=</span><span class="s3">False</span><span class="s4">,</span>
+            <span class="s1">force_name</span><span class="s4">=</span><span class="s1">name</span><span class="s4">,</span>
+            <span class="s1">force_ttl</span><span class="s4">=</span><span class="s1">ttl</span><span class="s4">,</span>
+            <span class="s1">force_rdclass</span><span class="s4">=</span><span class="s1">rdclass</span><span class="s4">,</span>
+            <span class="s1">force_rdtype</span><span class="s4">=</span><span class="s1">rdtype</span><span class="s4">,</span>
+            <span class="s1">default_ttl</span><span class="s4">=</span><span class="s1">default_ttl</span><span class="s4">,</span>
+        <span class="s4">)</span>
+        <span class="s1">reader</span><span class="s4">.</span><span class="s1">read</span><span class="s4">()</span>
+    <span class="s3">return </span><span class="s1">manager</span><span class="s4">.</span><span class="s1">rrsets</span>
+</pre>
+</body>
+</html>
