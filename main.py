@@ -5,7 +5,7 @@ mailboxes_col.insert_one({
     "smtp_host": "smtp.gmail.com",
     "smtp_port": 587,
     "username": "keruiliu233@gmail.com",
-    "password": "kchkrkdeymoniafa",  # In production: encrypt this!
+    "password": "", 
     "tls": True
 })
 
